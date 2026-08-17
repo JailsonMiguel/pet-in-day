@@ -1,0 +1,531 @@
+// This is your Prisma schema file,
+// learn more about it in the docs: https://pris.ly/d/prisma-schema
+
+generator client {
+  provider = "prisma-client-js"
+}
+
+datasource db {
+  provider = "postgresql"
+}
+
+// ==========================================
+// ENUMS
+// ==========================================
+
+enum UserRole {
+  platform_admin
+  clinic_admin
+  veterinarian
+  receptionist
+  tutor
+}
+
+enum UserStatus {
+  active
+  inactive
+  pending
+  blocked
+}
+
+enum PetSpecies {
+  dog
+  cat
+  bird
+  reptile
+  other
+}
+
+enum PetSex {
+  male
+  female
+  unknown
+}
+
+enum PetStatus {
+  active
+  deceased
+  transferred
+  archived
+}
+
+enum PrescriptionStatus {
+  pending
+  scheduled
+  applied
+  cancelled
+  no_show
+}
+
+enum VaccinationStatus {
+  confirmed
+  rectified
+  voided
+}
+
+enum SharePermission {
+  read
+  read_export
+}
+
+enum NotificationChannel {
+  push
+  email
+  sms
+}
+
+enum NotificationStatus {
+  pending
+  sent
+  failed
+  read
+}
+
+enum ConsentType {
+  terms_of_use
+  privacy_policy
+  data_sharing_clinic
+  marketing
+}
+
+enum ClinicUserRole {
+  admin
+  receptionist
+}
+
+// ==========================================
+// MODELS
+// ==========================================
+
+model User {
+  id              String      @id @default(uuid()) @db.Uuid
+  email           String      @unique @db.VarChar(255)
+  passwordHash    String?     @map("password_hash") @db.VarChar(255)
+  role            UserRole
+  status          UserStatus  @default(pending)
+  emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz
+  mfaEnabled      Boolean     @default(false) @map("mfa_enabled")
+  mfaSecret       String?     @map("mfa_secret") @db.VarChar(255)
+  lastLoginAt     DateTime?   @map("last_login_at") @db.Timestamptz
+  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt       DateTime?   @map("deleted_at") @db.Timestamptz
+
+  tutor                    Tutor?
+  veterinarian             Veterinarian?
+  clinicUsers              ClinicUser[]
+  notifications            Notification[]
+  consents                 Consent[]
+  auditLogs                AuditLog[]
+  refreshTokens            RefreshToken[]
+  vaccinationRectifications VaccinationRectification[]
+
+  @@index([email], map: "idx_users_email")
+  @@index([role, status], map: "idx_users_role_status")
+  @@map("users")
+}
+
+model Tutor {
+  id        String   @id @default(uuid()) @db.Uuid
+  userId    String   @unique @map("user_id") @db.Uuid
+  fullName  String   @map("full_name") @db.VarChar(200)
+  cpf       String   @unique @db.VarChar(11)
+  phone     String?  @db.VarChar(20)
+  avatarUrl String?  @map("avatar_url") @db.VarChar(500)
+  createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  tutorPets            TutorPet[]
+  ownedShares          PetShare[]           @relation("OwnerShares")
+  guestShares          PetShare[]           @relation("GuestShares")
+  clinicPetConsents    ClinicPetConsent[]
+  vaccinationReminders VaccinationReminder[]
+
+  @@index([cpf], map: "idx_tutors_cpf")
+  @@index([userId], map: "idx_tutors_user_id")
+  @@map("tutors")
+}
+
+model Veterinarian {
+  id           String   @id @default(uuid()) @db.Uuid
+  userId       String   @unique @map("user_id") @db.Uuid
+  fullName     String   @map("full_name") @db.VarChar(200)
+  crmv         String   @unique @db.VarChar(20)
+  crmvState    String   @map("crmv_state") @db.Char(2)
+  specialty    String?  @db.VarChar(100)
+  signatureUrl String?  @map("signature_url") @db.VarChar(500)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
+
+  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  clinicVeterinarians ClinicVeterinarian[]
+  prescriptions      Prescription[]
+  vaccinations       Vaccination[]
+
+  @@index([crmv], map: "idx_veterinarians_crmv")
+  @@index([userId], map: "idx_veterinarians_user_id")
+  @@map("veterinarians")
+}
+
+model Clinic {
+  id           String    @id @default(uuid()) @db.Uuid
+  cnpj         String    @unique @db.VarChar(14)
+  legalName    String    @map("legal_name") @db.VarChar(255)
+  tradeName    String?   @map("trade_name") @db.VarChar(255)
+  email        String    @db.VarChar(255)
+  phone        String?   @db.VarChar(20)
+  logoUrl      String?   @map("logo_url") @db.VarChar(500)
+  street       String    @db.VarChar(255)
+  number       String    @db.VarChar(20)
+  complement   String?   @db.VarChar(100)
+  neighborhood String    @db.VarChar(100)
+  city         String    @db.VarChar(100)
+  state        String    @db.Char(2)
+  zipCode      String    @map("zip_code") @db.VarChar(8)
+  latitude     Decimal?  @db.Decimal(10, 8)
+  longitude    Decimal?  @db.Decimal(11, 8)
+  isActive     Boolean   @default(true) @map("is_active")
+  createdAt    DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt    DateTime? @map("deleted_at") @db.Timestamptz
+
+  clinicUsers         ClinicUser[]
+  clinicVeterinarians ClinicVeterinarian[]
+  clinicPetConsents   ClinicPetConsent[]
+  clinicVaccines      ClinicVaccine[]
+  prescriptions       Prescription[]
+  vaccinations        Vaccination[]
+
+  @@index([cnpj], map: "idx_clinics_cnpj")
+  @@index([city, state], map: "idx_clinics_city_state")
+  @@map("clinics")
+}
+
+model ClinicUser {
+  id         String         @id @default(uuid()) @db.Uuid
+  clinicId   String         @map("clinic_id") @db.Uuid
+  userId     String         @map("user_id") @db.Uuid
+  role       ClinicUserRole
+  isActive   Boolean        @default(true) @map("is_active")
+  invitedAt  DateTime?      @map("invited_at") @db.Timestamptz
+  acceptedAt DateTime?      @map("accepted_at") @db.Timestamptz
+  createdAt  DateTime       @default(now()) @map("created_at") @db.Timestamptz
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  user   User   @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, userId])
+  @@map("clinic_users")
+}
+
+model ClinicVeterinarian {
+  id             String    @id @default(uuid()) @db.Uuid
+  clinicId       String    @map("clinic_id") @db.Uuid
+  veterinarianId String    @map("veterinarian_id") @db.Uuid
+  isActive       Boolean   @default(true) @map("is_active")
+  invitedAt      DateTime? @map("invited_at") @db.Timestamptz
+  acceptedAt     DateTime? @map("accepted_at") @db.Timestamptz
+  createdAt      DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  clinic       Clinic       @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  veterinarian Veterinarian @relation(fields: [veterinarianId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, veterinarianId])
+  @@map("clinic_veterinarians")
+}
+
+model Pet {
+  id         String    @id @default(uuid()) @db.Uuid
+  publicCode String    @unique @map("public_code") @db.VarChar(12)
+  name       String    @db.VarChar(100)
+  species    PetSpecies
+  breed      String?   @db.VarChar(100)
+  sex        PetSex    @default(unknown)
+  birthDate  DateTime? @map("birth_date") @db.Date
+  weightKg   Decimal?  @map("weight_kg") @db.Decimal(5, 2)
+  microchip  String?   @unique @db.VarChar(50)
+  photoUrl   String?   @map("photo_url") @db.VarChar(500)
+  status     PetStatus @default(active)
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+
+  tutorPets            TutorPet[]
+  petShares            PetShare[]
+  clinicPetConsents    ClinicPetConsent[]
+  prescriptions        Prescription[]
+  vaccinations         Vaccination[]
+  vaccinationReminders VaccinationReminder[]
+
+  @@index([publicCode], map: "idx_pets_public_code")
+  @@index([microchip], map: "idx_pets_microchip")
+  @@index([status], map: "idx_pets_status")
+  @@map("pets")
+}
+
+model TutorPet {
+  id           String   @id @default(uuid()) @db.Uuid
+  tutorId      String   @map("tutor_id") @db.Uuid
+  petId        String   @map("pet_id") @db.Uuid
+  isPrimary    Boolean  @default(false) @map("is_primary")
+  relationship String?  @db.VarChar(50)
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  tutor Tutor @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  pet   Pet   @relation(fields: [petId], references: [id], onDelete: Cascade)
+
+  @@unique([tutorId, petId])
+  @@map("tutor_pets")
+}
+
+model PetShare {
+  id           String          @id @default(uuid()) @db.Uuid
+  petId        String          @map("pet_id") @db.Uuid
+  ownerTutorId String          @map("owner_tutor_id") @db.Uuid
+  guestTutorId String?         @map("guest_tutor_id") @db.Uuid
+  guestEmail   String          @map("guest_email") @db.VarChar(255)
+  permission   SharePermission @default(read)
+  token        String          @unique @db.VarChar(64)
+  expiresAt    DateTime        @map("expires_at") @db.Timestamptz
+  acceptedAt   DateTime?       @map("accepted_at") @db.Timestamptz
+  revokedAt    DateTime?       @map("revoked_at") @db.Timestamptz
+  createdAt    DateTime        @default(now()) @map("created_at") @db.Timestamptz
+
+  pet        Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
+  ownerTutor Tutor  @relation("OwnerShares", fields: [ownerTutorId], references: [id], onDelete: Cascade)
+  guestTutor Tutor? @relation("GuestShares", fields: [guestTutorId], references: [id], onDelete: SetNull)
+
+  @@map("pet_shares")
+}
+
+model ClinicPetConsent {
+  id        String    @id @default(uuid()) @db.Uuid
+  clinicId  String    @map("clinic_id") @db.Uuid
+  petId     String    @map("pet_id") @db.Uuid
+  tutorId   String    @map("tutor_id") @db.Uuid
+  grantedAt DateTime  @default(now()) @map("granted_at") @db.Timestamptz
+  revokedAt DateTime? @map("revoked_at") @db.Timestamptz
+  ipAddress String?   @map("ip_address") @db.Inet
+
+  clinic Clinic @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  pet    Pet    @relation(fields: [petId], references: [id], onDelete: Cascade)
+  tutor  Tutor  @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+
+  @@map("clinic_pet_consents")
+}
+
+model Vaccine {
+  id           String       @id @default(uuid()) @db.Uuid
+  name         String       @db.VarChar(150)
+  manufacturer String?      @db.VarChar(150)
+  species      PetSpecies[]
+  description  String?      @db.Text
+  isActive     Boolean      @default(true) @map("is_active")
+  createdAt    DateTime     @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt    DateTime     @updatedAt @map("updated_at") @db.Timestamptz
+
+  protocols            VaccineProtocol[]
+  clinicVaccines       ClinicVaccine[]
+  prescriptions        Prescription[]
+  vaccinations         Vaccination[]
+  vaccinationReminders VaccinationReminder[]
+
+  @@map("vaccines")
+}
+
+model VaccineProtocol {
+  id           String   @id @default(uuid()) @db.Uuid
+  vaccineId    String   @map("vaccine_id") @db.Uuid
+  doseNumber   Int      @map("dose_number") @db.SmallInt
+  minAgeDays   Int?     @map("min_age_days")
+  intervalDays Int?     @map("interval_days")
+  isBooster    Boolean  @default(false) @map("is_booster")
+  notes        String?  @db.Text
+  createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  vaccine Vaccine @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+
+  @@unique([vaccineId, doseNumber])
+  @@map("vaccine_protocols")
+}
+
+model ClinicVaccine {
+  id          String   @id @default(uuid()) @db.Uuid
+  clinicId    String   @map("clinic_id") @db.Uuid
+  vaccineId   String   @map("vaccine_id") @db.Uuid
+  isAvailable Boolean  @default(true) @map("is_available")
+  createdAt   DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  clinic  Clinic  @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  vaccine Vaccine @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+
+  @@unique([clinicId, vaccineId])
+  @@map("clinic_vaccines")
+}
+
+model Prescription {
+  id             String             @id @default(uuid()) @db.Uuid
+  petId          String             @map("pet_id") @db.Uuid
+  vaccineId      String             @map("vaccine_id") @db.Uuid
+  veterinarianId String             @map("veterinarian_id") @db.Uuid
+  clinicId       String             @map("clinic_id") @db.Uuid
+  doseNumber     Int                @default(1) @map("dose_number") @db.SmallInt
+  status         PrescriptionStatus @default(pending)
+  prescribedAt   DateTime           @default(now()) @map("prescribed_at") @db.Timestamptz
+  scheduledAt    DateTime?          @map("scheduled_at") @db.Date
+  notes          String?            @db.Text
+  createdAt      DateTime           @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt      DateTime           @updatedAt @map("updated_at") @db.Timestamptz
+
+  pet                  Pet                   @relation(fields: [petId], references: [id], onDelete: Cascade)
+  vaccine              Vaccine               @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+  veterinarian         Veterinarian          @relation(fields: [veterinarianId], references: [id], onDelete: Cascade)
+  clinic               Clinic                @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  vaccinations         Vaccination[]
+  vaccinationReminders VaccinationReminder[]
+
+  @@index([petId], map: "idx_prescriptions_pet_id")
+  @@index([status], map: "idx_prescriptions_status")
+  @@index([scheduledAt], map: "idx_prescriptions_scheduled_at")
+  @@map("prescriptions")
+}
+
+model Vaccination {
+  id              String            @id @default(uuid()) @db.Uuid
+  prescriptionId  String?           @map("prescription_id") @db.Uuid
+  petId           String            @map("pet_id") @db.Uuid
+  vaccineId       String            @map("vaccine_id") @db.Uuid
+  veterinarianId  String            @map("veterinarian_id") @db.Uuid
+  clinicId        String            @map("clinic_id") @db.Uuid
+  doseNumber      Int               @map("dose_number") @db.SmallInt
+  batchNumber     String            @map("batch_number") @db.VarChar(50)
+  batchExpiry     DateTime          @map("batch_expiry") @db.Date
+  applicationSite String?           @map("application_site") @db.VarChar(100)
+  appliedAt       DateTime          @map("applied_at") @db.Timestamptz
+  status          VaccinationStatus @default(confirmed)
+  nextDoseAt      DateTime?         @map("next_dose_at") @db.Date
+  certificateUrl  String?           @map("certificate_url") @db.VarChar(500)
+  qrCodeToken     String?           @unique @map("qr_code_token") @db.VarChar(64)
+  notes           String?           @db.Text
+  createdAt       DateTime          @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime          @updatedAt @map("updated_at") @db.Timestamptz
+
+  prescription             Prescription?              @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  pet                      Pet                        @relation(fields: [petId], references: [id], onDelete: Cascade)
+  vaccine                  Vaccine                    @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+  veterinarian             Veterinarian               @relation(fields: [veterinarianId], references: [id], onDelete: Cascade)
+  clinic                   Clinic                     @relation(fields: [clinicId], references: [id], onDelete: Cascade)
+  vaccinationRectification VaccinationRectification[]
+  vaccinationReminders     VaccinationReminder[]
+
+  @@index([petId], map: "idx_vaccinations_pet_id")
+  @@index([appliedAt], map: "idx_vaccinations_applied_at")
+  @@index([qrCodeToken], map: "idx_vaccinations_qr_code_token")
+  @@map("vaccinations")
+}
+
+model VaccinationRectification {
+  id            String   @id @default(uuid()) @db.Uuid
+  vaccinationId String   @map("vaccination_id") @db.Uuid
+  rectifiedBy   String   @map("rectified_by") @db.Uuid
+  reason        String   @db.Text
+  previousData  Json     @map("previous_data")
+  newData       Json     @map("new_data")
+  createdAt     DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  vaccination Vaccination @relation(fields: [vaccinationId], references: [id], onDelete: Cascade)
+  user        User        @relation(fields: [rectifiedBy], references: [id], onDelete: Cascade)
+
+  @@map("vaccination_rectifications")
+}
+
+model VaccinationReminder {
+  id             String              @id @default(uuid()) @db.Uuid
+  petId          String              @map("pet_id") @db.Uuid
+  tutorId        String              @map("tutor_id") @db.Uuid
+  vaccinationId  String?             @map("vaccination_id") @db.Uuid
+  prescriptionId String?             @map("prescription_id") @db.Uuid
+  vaccineId      String              @map("vaccine_id") @db.Uuid
+  remindAt       DateTime            @map("remind_at") @db.Timestamptz
+  channel        NotificationChannel
+  status         NotificationStatus  @default(pending)
+  sentAt         DateTime?           @map("sent_at") @db.Timestamptz
+  createdAt      DateTime            @default(now()) @map("created_at") @db.Timestamptz
+
+  pet          Pet           @relation(fields: [petId], references: [id], onDelete: Cascade)
+  tutor        Tutor         @relation(fields: [tutorId], references: [id], onDelete: Cascade)
+  vaccination  Vaccination?  @relation(fields: [vaccinationId], references: [id], onDelete: SetNull)
+  prescription Prescription? @relation(fields: [prescriptionId], references: [id], onDelete: SetNull)
+  vaccine      Vaccine       @relation(fields: [vaccineId], references: [id], onDelete: Cascade)
+
+  @@index([remindAt, status], map: "idx_reminders_remind_at_status")
+  @@map("vaccination_reminders")
+}
+
+model Notification {
+  id            String              @id @default(uuid()) @db.Uuid
+  userId        String              @map("user_id") @db.Uuid
+  title         String              @db.VarChar(200)
+  body          String              @db.Text
+  type          String              @db.VarChar(50)
+  referenceType String?             @map("reference_type") @db.VarChar(50)
+  referenceId   String?             @map("reference_id") @db.Uuid
+  channel       NotificationChannel
+  status        NotificationStatus  @default(pending)
+  readAt        DateTime?           @map("read_at") @db.Timestamptz
+  createdAt     DateTime            @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("notifications")
+}
+
+model Consent {
+  id          String      @id @default(uuid()) @db.Uuid
+  userId      String      @map("user_id") @db.Uuid
+  consentType ConsentType @map("consent_type")
+  version     String      @db.VarChar(20)
+  granted     Boolean
+  ipAddress   String?     @map("ip_address") @db.Inet
+  userAgent   String?     @map("user_agent") @db.Text
+  grantedAt   DateTime    @default(now()) @map("granted_at") @db.Timestamptz
+  revokedAt   DateTime?   @map("revoked_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("consents")
+}
+
+model AuditLog {
+  id         String   @id @default(uuid()) @db.Uuid
+  userId     String?  @map("user_id") @db.Uuid
+  entityType String   @map("entity_type") @db.VarChar(50)
+  entityId   String   @map("entity_id") @db.Uuid
+  action     String   @db.VarChar(50)
+  oldValues  Json?    @map("old_values")
+  newValues  Json?    @map("new_values")
+  ipAddress  String?  @map("ip_address") @db.Inet
+  createdAt  DateTime @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([entityType, entityId], map: "idx_audit_entity")
+  @@index([userId], map: "idx_audit_user_id")
+  @@index([createdAt], map: "idx_audit_created_at")
+  @@map("audit_logs")
+}
+
+model RefreshToken {
+  id         String    @id @default(uuid()) @db.Uuid
+  userId     String    @map("user_id") @db.Uuid
+  tokenHash  String    @unique @map("token_hash") @db.VarChar(255)
+  deviceInfo String?   @map("device_info") @db.VarChar(255)
+  expiresAt  DateTime  @map("expires_at") @db.Timestamptz
+  revokedAt  DateTime? @map("revoked_at") @db.Timestamptz
+  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
+
+  user User @relation(fields: [userId], references: [id], onDelete: Cascade)
+
+  @@map("refresh_tokens")
+}
