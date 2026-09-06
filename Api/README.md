@@ -87,7 +87,31 @@ $ npm run test
 ```
 
 Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
-token, logout, registro), `JwtStrategy` e `PetsService`.
+token, logout, registro), `JwtStrategy`, `PetsService` e `GlobalExceptionFilter`.
+
+### Tratamento de Erros
+
+Toda exceção passa pelo `GlobalExceptionFilter`
+([`src/core/filters`](src/core/filters/global-exception.filter.ts)), registrado
+como `APP_FILTER`. As respostas de erro seguem um envelope único, espelhando o
+`{ data }` das respostas de sucesso:
+
+```jsonc
+{
+  "error": {
+    "statusCode": 409,
+    "message": "E-mail já cadastrado", // string ou string[] (erros de validação)
+    "path": "/v1/auth/register",
+    "method": "POST",
+    "timestamp": "2026-09-06T12:00:00.000Z"
+  }
+}
+```
+
+Erros conhecidos do Prisma são mapeados para o status adequado (`P2002` → 409,
+`P2025` → 404, `P2003` → 409). Erros não tratados retornam `500` genérico —
+stack trace, SQL e mensagens internas nunca chegam ao cliente; o detalhe
+completo é logado no servidor.
 
 ### Integração Contínua
 
