@@ -1,7 +1,13 @@
-import { Injectable, UnauthorizedException, ConflictException } from '@nestjs/common';
+import {
+  Injectable,
+  UnauthorizedException,
+  ConflictException,
+} from '@nestjs/common';
+import { ConfigService } from '@nestjs/config';
 import { JwtService } from '@nestjs/jwt';
 import * as bcrypt from 'bcrypt';
 import * as crypto from 'crypto';
+import { EnvironmentVariables } from '../../core/config/env.validation';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto, RefreshTokenDto } from './dto/login.dto';
@@ -12,6 +18,7 @@ export class AuthService {
   constructor(
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
+    private readonly config: ConfigService<EnvironmentVariables, true>,
   ) {}
 
   async register(dto: RegisterDto) {
@@ -90,12 +97,18 @@ export class AuthService {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    const isPasswordValid = await bcrypt.compare(dto.password, user.passwordHash);
+    const isPasswordValid = await bcrypt.compare(
+      dto.password,
+      user.passwordHash,
+    );
     if (!isPasswordValid) {
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
-    if (user.status === UserStatus.blocked || user.status === UserStatus.inactive) {
+    if (
+      user.status === UserStatus.blocked ||
+      user.status === UserStatus.inactive
+    ) {
       throw new UnauthorizedException('Conta bloqueada ou inativa');
     }
 
@@ -108,12 +121,15 @@ export class AuthService {
     // Gerar Tokens
     const tokens = await this.generateTokens(user.id, user.email, user.role);
 
-    const fullName = user.tutor?.fullName || user.veterinarian?.fullName || 'Usuário';
+    const fullName =
+      user.tutor?.fullName || user.veterinarian?.fullName || 'Usuário';
 
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresIn: 3600,
+      expiresIn: this.config.get('JWT_ACCESS_EXPIRES_IN_SECONDS', {
+        infer: true,
+      }),
       user: {
         id: user.id,
         email: user.email,
@@ -131,7 +147,11 @@ export class AuthService {
       include: { user: true },
     });
 
-    if (!storedToken || storedToken.revokedAt || storedToken.expiresAt < new Date()) {
+    if (
+      !storedToken ||
+      storedToken.revokedAt ||
+      storedToken.expiresAt < new Date()
+    ) {
       throw new UnauthorizedException('Refresh token inválido ou expirado');
     }
 
@@ -151,7 +171,9 @@ export class AuthService {
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
-      expiresIn: 3600,
+      expiresIn: this.config.get('JWT_ACCESS_EXPIRES_IN_SECONDS', {
+        infer: true,
+      }),
     };
   }
 
@@ -172,15 +194,16 @@ export class AuthService {
   private async generateTokens(userId: string, email: string, role: string) {
     const payload = { sub: userId, email, role };
 
-    const accessToken = this.jwtService.sign(payload, {
-      secret: process.env.JWT_SECRET || 'super-secret-key-petemdia',
-      expiresIn: '1h',
-    });
+    // Segredo e expiração vêm da configuração do JwtModule (validada no boot).
+    const accessToken = this.jwtService.sign(payload);
 
     const refreshTokenRaw = crypto.randomBytes(40).toString('hex');
     const tokenHash = this.hashToken(refreshTokenRaw);
     const expiresAt = new Date();
-    expiresAt.setDate(expiresAt.getDate() + 7); // Validade de 7 dias
+    expiresAt.setDate(
+      expiresAt.getDate() +
+        this.config.get('JWT_REFRESH_EXPIRES_IN_DAYS', { infer: true }),
+    );
 
     await this.prisma.refreshToken.create({
       data: {

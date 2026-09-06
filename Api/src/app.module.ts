@@ -1,15 +1,48 @@
 import { Module } from '@nestjs/common';
+import { ConfigModule, ConfigService } from '@nestjs/config';
+import { APP_GUARD } from '@nestjs/core';
+import { ThrottlerGuard, ThrottlerModule } from '@nestjs/throttler';
 import { AppController } from './app.controller';
 import { AppService } from './app.service';
+import {
+  EnvironmentVariables,
+  NodeEnv,
+  validateEnv,
+} from './core/config/env.validation';
 import { PrismaModule } from './core/database/prisma.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PetsModule } from './modules/pets/pets.module';
 
 @Module({
-  imports: [PrismaModule, AuthModule, PetsModule],
+  imports: [
+    ConfigModule.forRoot({
+      isGlobal: true,
+      validate: validateEnv,
+    }),
+    ThrottlerModule.forRootAsync({
+      inject: [ConfigService],
+      useFactory: (config: ConfigService<EnvironmentVariables, true>) => ({
+        throttlers: [
+          {
+            ttl: config.get('THROTTLE_TTL_SECONDS', { infer: true }) * 1000,
+            limit: config.get('THROTTLE_LIMIT', { infer: true }),
+          },
+        ],
+        // Desliga o rate limit na suíte de testes para não gerar 429 espúrios.
+        skipIf: () => config.get('NODE_ENV', { infer: true }) === NodeEnv.Test,
+      }),
+    }),
+    PrismaModule,
+    AuthModule,
+    PetsModule,
+  ],
   controllers: [AppController],
-  providers: [AppService],
+  providers: [
+    AppService,
+    {
+      provide: APP_GUARD,
+      useClass: ThrottlerGuard,
+    },
+  ],
 })
 export class AppModule {}
-
-

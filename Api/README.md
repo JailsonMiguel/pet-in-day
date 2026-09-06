@@ -38,9 +38,37 @@ API Backend para a plataforma **PetEmDia**, responsável pelo gerenciamento de c
 # Instalar dependências
 $ npm install
 
+# Criar o arquivo de variáveis de ambiente a partir do template
+$ cp .env.example .env
+
+# Gerar um JWT_SECRET forte e colar no .env
+$ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
+
 # Executar migrations do Prisma (se necessário)
 $ npx prisma migrate dev
 ```
+
+> As variáveis de ambiente são validadas no boot (`src/core/config/env.validation.ts`).
+> A aplicação **não sobe** se `DATABASE_URL` ou `JWT_SECRET` estiverem ausentes/inválidos
+> (`JWT_SECRET` exige no mínimo 32 caracteres).
+
+| Variável | Obrigatória | Padrão | Descrição |
+| --- | --- | --- | --- |
+| `DATABASE_URL` | sim | — | String de conexão PostgreSQL |
+| `JWT_SECRET` | sim | — | Segredo de assinatura dos access tokens (mín. 32 caracteres) |
+| `NODE_ENV` | não | `development` | `development` \| `production` \| `test` |
+| `PORT` | não | `3000` | Porta HTTP |
+| `JWT_ACCESS_EXPIRES_IN_SECONDS` | não | `3600` | Validade do access token |
+| `JWT_REFRESH_EXPIRES_IN_DAYS` | não | `7` | Validade do refresh token |
+| `CORS_ORIGINS` | não | `` (vazio) | Allowlist de origens (separadas por vírgula). Vazio libera tudo em dev e bloqueia tudo em produção |
+| `THROTTLE_TTL_SECONDS` | não | `60` | Janela do rate limit global (por IP) |
+| `THROTTLE_LIMIT` | não | `100` | Máximo de requisições por janela; `login` e `register` usam limite próprio de 5/min |
+
+### Segurança HTTP
+
+- **helmet** aplica cabeçalhos de segurança em todas as respostas.
+- **CORS** opera por allowlist via `CORS_ORIGINS`; requisições sem `Origin` (curl, apps mobile) continuam permitidas.
+- **Rate limiting** global via `@nestjs/throttler` (`ThrottlerGuard` registrado como guard global), com limite reforçado de 5 requisições/minuto em `POST /v1/auth/login` e `POST /v1/auth/register`.
 
 ### Rodar a Aplicação
 ```bash
@@ -57,4 +85,14 @@ $ npm run start:prod
 # Testes unitários
 $ npm run test
 ```
+
+Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
+token, logout, registro), `JwtStrategy` e `PetsService`.
+
+### Integração Contínua
+
+O workflow [`.github/workflows/api-ci.yml`](../.github/workflows/api-ci.yml)
+roda a cada push em `master` e em cada Pull Request que toque em `Api/`,
+executando (todos bloqueantes): `npm run lint:ci` → `npm run build` → `npm test`.
+O rate limit é desativado quando `NODE_ENV=test` para não gerar `429` na suíte.
 

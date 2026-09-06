@@ -21,7 +21,9 @@ export class PetsService {
     });
 
     if (!tutor) {
-      throw new BadRequestException('Usuário autenticado não possui perfil de Tutor');
+      throw new BadRequestException(
+        'Usuário autenticado não possui perfil de Tutor',
+      );
     }
 
     if (dto.microchip) {
@@ -131,13 +133,20 @@ export class PetsService {
     });
 
     if (!hasLink) {
-      throw new ForbiddenException('Você não tem permissão para acessar os dados deste pet');
+      throw new ForbiddenException(
+        'Você não tem permissão para acessar os dados deste pet',
+      );
     }
 
     return pet;
   }
 
-  async update(userId: string, userRole: string, petId: string, dto: UpdatePetDto) {
+  async update(
+    userId: string,
+    userRole: string,
+    petId: string,
+    dto: UpdatePetDto,
+  ) {
     await this.findOne(userId, userRole, petId);
 
     if (dto.microchip) {
@@ -160,7 +169,9 @@ export class PetsService {
         ...(dto.species && { species: dto.species }),
         ...(dto.breed !== undefined && { breed: dto.breed }),
         ...(dto.sex && { sex: dto.sex }),
-        ...(dto.birthDate !== undefined && { birthDate: dto.birthDate ? new Date(dto.birthDate) : null }),
+        ...(dto.birthDate !== undefined && {
+          birthDate: dto.birthDate ? new Date(dto.birthDate) : null,
+        }),
         ...(dto.weightKg !== undefined && { weightKg: dto.weightKg }),
         ...(dto.microchip !== undefined && { microchip: dto.microchip }),
         ...(dto.photoUrl !== undefined && { photoUrl: dto.photoUrl }),

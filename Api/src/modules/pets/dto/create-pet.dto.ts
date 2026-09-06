@@ -1,4 +1,13 @@
-import { IsString, IsEnum, IsOptional, IsDateString, IsNumber, Min, Max, MaxLength } from 'class-validator';
+import {
+  IsString,
+  IsEnum,
+  IsOptional,
+  IsDateString,
+  IsNumber,
+  Min,
+  Max,
+  MaxLength,
+} from 'class-validator';
 import { PetSpecies, PetSex } from '@prisma/client';
 
 export class CreatePetDto {

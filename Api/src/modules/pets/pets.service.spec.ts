@@ -2,11 +2,16 @@ import { Test, TestingModule } from '@nestjs/testing';
 import { PetsService } from './pets.service';
 import { PrismaService } from '../../core/database/prisma.service';
 import { PetSpecies, PetStatus, UserRole } from '@prisma/client';
-import { BadRequestException, NotFoundException, ForbiddenException } from '@nestjs/common';
+import {
+  BadRequestException,
+  NotFoundException,
+  ForbiddenException,
+} from '@nestjs/common';
+
+type TxCallback = (tx: unknown) => unknown;
 
 describe('PetsService', () => {
   let service: PetsService;
-  let prisma: any;
 
   const mockPrismaService = {
     tutor: {
@@ -21,7 +26,7 @@ describe('PetsService', () => {
       findMany: jest.fn(),
       findUnique: jest.fn(),
     },
-    $transaction: jest.fn((callback) => callback(prisma)),
+    $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -36,7 +41,6 @@ describe('PetsService', () => {
     }).compile();
 
     service = module.get<PetsService>(PetsService);
-    prisma = module.get<PrismaService>(PrismaService);
     jest.clearAllMocks();
   });
 
@@ -65,16 +69,16 @@ describe('PetsService', () => {
 
       mockPrismaService.tutor.findUnique.mockResolvedValue(mockTutor);
       mockPrismaService.pet.findUnique.mockResolvedValue(null);
-      mockPrismaService.$transaction.mockImplementation(async (cb) => {
-        return cb({
+      mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
+        cb({
           pet: {
             create: jest.fn().mockResolvedValue(mockCreatedPet),
           },
           tutorPet: {
             create: jest.fn().mockResolvedValue({}),
           },
-        });
-      });
+        }),
+      );
 
       const result = await service.create('user-id-1', {
         name: 'Thor',
@@ -110,7 +114,9 @@ describe('PetsService', () => {
     it('deve lançar ForbiddenException se tutor não estiver vinculado ao pet', async () => {
       const mockPet = { id: 'pet-id-1', name: 'Thor', deletedAt: null };
       mockPrismaService.pet.findFirst.mockResolvedValue(mockPet);
-      mockPrismaService.tutor.findUnique.mockResolvedValue({ id: 'tutor-id-1' });
+      mockPrismaService.tutor.findUnique.mockResolvedValue({
+        id: 'tutor-id-1',
+      });
       mockPrismaService.tutorPet.findUnique.mockResolvedValue(null);
 
       await expect(
