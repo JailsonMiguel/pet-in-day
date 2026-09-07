@@ -5,6 +5,7 @@ import { ConflictException, UnauthorizedException } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
 import { UserStatus } from '@prisma/client';
 import { AuthService } from './auth.service';
+import { AuthAuditService } from './auth-audit.service';
 import { PrismaService } from '../../core/database/prisma.service';
 
 jest.mock('bcrypt');
@@ -51,6 +52,10 @@ describe('AuthService', () => {
     get: jest.fn((key: string) => configValues[key]),
   };
 
+  const mockAuditService = {
+    record: jest.fn().mockResolvedValue(undefined),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +63,7 @@ describe('AuthService', () => {
         { provide: PrismaService, useValue: mockPrismaService },
         { provide: JwtService, useValue: mockJwtService },
         { provide: ConfigService, useValue: mockConfigService },
+        { provide: AuthAuditService, useValue: mockAuditService },
       ],
     }).compile();
 
@@ -89,6 +95,14 @@ describe('AuthService', () => {
 
       await expect(service.login(dto)).rejects.toThrow(UnauthorizedException);
       expect(mockPrismaService.user.update).not.toHaveBeenCalled();
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'login_failure',
+          success: false,
+          userId: 'user-1',
+          reason: 'invalid_password',
+        }),
+      );
     });
 
     it('lança UnauthorizedException se a conta estiver bloqueada', async () => {
@@ -101,6 +115,12 @@ describe('AuthService', () => {
       bcryptCompare.mockResolvedValue(true);
 
       await expect(service.login(dto)).rejects.toThrow(UnauthorizedException);
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'login_failure',
+          reason: 'account_blocked',
+        }),
+      );
     });
 
     it('retorna o par de tokens e atualiza lastLoginAt em caso de sucesso', async () => {
@@ -132,6 +152,13 @@ describe('AuthService', () => {
         role: 'tutor',
         fullName: 'Fulano de Tal',
       });
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'login_success',
+          success: true,
+          userId: 'user-1',
+        }),
+      );
     });
   });
 
@@ -142,6 +169,13 @@ describe('AuthService', () => {
       await expect(
         service.refreshTokens({ refreshToken: 'inexistente' }),
       ).rejects.toThrow(UnauthorizedException);
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'token_refresh_failure',
+          success: false,
+          reason: 'invalid_or_expired',
+        }),
+      );
     });
 
     it('lança UnauthorizedException se o refresh token foi revogado', async () => {
@@ -188,6 +222,13 @@ describe('AuthService', () => {
       });
       expect(result.accessToken).toBe('signed.access.token');
       expect(result.refreshToken).toEqual(anyString);
+      expect(mockAuditService.record).toHaveBeenCalledWith(
+        expect.objectContaining({
+          eventType: 'token_refresh',
+          success: true,
+          userId: 'user-1',
+        }),
+      );
     });
   });
 

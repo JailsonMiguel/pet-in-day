@@ -11,6 +11,7 @@ import {
 } from './core/config/env.validation';
 import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
 import { PrismaModule } from './core/database/prisma.module';
+import { LoggerModule } from './core/logging/logger.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { PetsModule } from './modules/pets/pets.module';
 
@@ -20,6 +21,7 @@ import { PetsModule } from './modules/pets/pets.module';
       isGlobal: true,
       validate: validateEnv,
     }),
+    LoggerModule,
     ThrottlerModule.forRootAsync({
       inject: [ConfigService],
       useFactory: (config: ConfigService<EnvironmentVariables, true>) => ({

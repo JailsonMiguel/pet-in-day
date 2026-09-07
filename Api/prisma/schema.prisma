@@ -93,31 +93,41 @@ enum ClinicUserRole {
   receptionist
 }
 
+enum AuthEventType {
+  login_success
+  login_failure
+  logout
+  token_refresh
+  token_refresh_failure
+  register
+}
+
 // ==========================================
 // MODELS
 // ==========================================
 
 model User {
-  id              String      @id @default(uuid()) @db.Uuid
-  email           String      @unique @db.VarChar(255)
-  passwordHash    String?     @map("password_hash") @db.VarChar(255)
+  id              String     @id @default(uuid()) @db.Uuid
+  email           String     @unique @db.VarChar(255)
+  passwordHash    String?    @map("password_hash") @db.VarChar(255)
   role            UserRole
-  status          UserStatus  @default(pending)
-  emailVerifiedAt DateTime?   @map("email_verified_at") @db.Timestamptz
-  mfaEnabled      Boolean     @default(false) @map("mfa_enabled")
-  mfaSecret       String?     @map("mfa_secret") @db.VarChar(255)
-  lastLoginAt     DateTime?   @map("last_login_at") @db.Timestamptz
-  createdAt       DateTime    @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt       DateTime    @updatedAt @map("updated_at") @db.Timestamptz
-  deletedAt       DateTime?   @map("deleted_at") @db.Timestamptz
+  status          UserStatus @default(pending)
+  emailVerifiedAt DateTime?  @map("email_verified_at") @db.Timestamptz
+  mfaEnabled      Boolean    @default(false) @map("mfa_enabled")
+  mfaSecret       String?    @map("mfa_secret") @db.VarChar(255)
+  lastLoginAt     DateTime?  @map("last_login_at") @db.Timestamptz
+  createdAt       DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt       DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt       DateTime?  @map("deleted_at") @db.Timestamptz
 
-  tutor                    Tutor?
-  veterinarian             Veterinarian?
-  clinicUsers              ClinicUser[]
-  notifications            Notification[]
-  consents                 Consent[]
-  auditLogs                AuditLog[]
-  refreshTokens            RefreshToken[]
+  tutor                     Tutor?
+  veterinarian              Veterinarian?
+  clinicUsers               ClinicUser[]
+  notifications             Notification[]
+  consents                  Consent[]
+  auditLogs                 AuditLog[]
+  authAuditLogs             AuthAuditLog[]
+  refreshTokens             RefreshToken[]
   vaccinationRectifications VaccinationRectification[]
 
   @@index([email], map: "idx_users_email")
@@ -135,10 +145,10 @@ model Tutor {
   createdAt DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user                 User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                 User                  @relation(fields: [userId], references: [id], onDelete: Cascade)
   tutorPets            TutorPet[]
-  ownedShares          PetShare[]           @relation("OwnerShares")
-  guestShares          PetShare[]           @relation("GuestShares")
+  ownedShares          PetShare[]            @relation("OwnerShares")
+  guestShares          PetShare[]            @relation("GuestShares")
   clinicPetConsents    ClinicPetConsent[]
   vaccinationReminders VaccinationReminder[]
 
@@ -158,10 +168,10 @@ model Veterinarian {
   createdAt    DateTime @default(now()) @map("created_at") @db.Timestamptz
   updatedAt    DateTime @updatedAt @map("updated_at") @db.Timestamptz
 
-  user               User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
+  user                User                 @relation(fields: [userId], references: [id], onDelete: Cascade)
   clinicVeterinarians ClinicVeterinarian[]
-  prescriptions      Prescription[]
-  vaccinations       Vaccination[]
+  prescriptions       Prescription[]
+  vaccinations        Vaccination[]
 
   @@index([crmv], map: "idx_veterinarians_crmv")
   @@index([userId], map: "idx_veterinarians_user_id")
@@ -236,20 +246,20 @@ model ClinicVeterinarian {
 }
 
 model Pet {
-  id         String    @id @default(uuid()) @db.Uuid
-  publicCode String    @unique @map("public_code") @db.VarChar(12)
-  name       String    @db.VarChar(100)
+  id         String     @id @default(uuid()) @db.Uuid
+  publicCode String     @unique @map("public_code") @db.VarChar(12)
+  name       String     @db.VarChar(100)
   species    PetSpecies
-  breed      String?   @db.VarChar(100)
-  sex        PetSex    @default(unknown)
-  birthDate  DateTime? @map("birth_date") @db.Date
-  weightKg   Decimal?  @map("weight_kg") @db.Decimal(5, 2)
-  microchip  String?   @unique @db.VarChar(50)
-  photoUrl   String?   @map("photo_url") @db.VarChar(500)
-  status     PetStatus @default(active)
-  createdAt  DateTime  @default(now()) @map("created_at") @db.Timestamptz
-  updatedAt  DateTime  @updatedAt @map("updated_at") @db.Timestamptz
-  deletedAt  DateTime? @map("deleted_at") @db.Timestamptz
+  breed      String?    @db.VarChar(100)
+  sex        PetSex     @default(unknown)
+  birthDate  DateTime?  @map("birth_date") @db.Date
+  weightKg   Decimal?   @map("weight_kg") @db.Decimal(5, 2)
+  microchip  String?    @unique @db.VarChar(50)
+  photoUrl   String?    @map("photo_url") @db.VarChar(500)
+  status     PetStatus  @default(active)
+  createdAt  DateTime   @default(now()) @map("created_at") @db.Timestamptz
+  updatedAt  DateTime   @updatedAt @map("updated_at") @db.Timestamptz
+  deletedAt  DateTime?  @map("deleted_at") @db.Timestamptz
 
   tutorPets            TutorPet[]
   petShares            PetShare[]
@@ -528,4 +538,26 @@ model RefreshToken {
   user User @relation(fields: [userId], references: [id], onDelete: Cascade)
 
   @@map("refresh_tokens")
+}
+
+/// Trilha de auditoria de eventos de autenticação (LGPD).
+/// `userId` é opcional porque falhas de login podem ocorrer com e-mail
+/// inexistente; `email` guarda a identidade tentada mesmo sem usuário.
+model AuthAuditLog {
+  id        String        @id @default(uuid()) @db.Uuid
+  eventType AuthEventType @map("event_type")
+  success   Boolean
+  userId    String?       @map("user_id") @db.Uuid
+  email     String?       @db.VarChar(255)
+  ipAddress String?       @map("ip_address") @db.Inet
+  userAgent String?       @map("user_agent") @db.Text
+  reason    String?       @db.VarChar(255)
+  createdAt DateTime      @default(now()) @map("created_at") @db.Timestamptz
+
+  user User? @relation(fields: [userId], references: [id], onDelete: SetNull)
+
+  @@index([userId], map: "idx_auth_audit_user_id")
+  @@index([email], map: "idx_auth_audit_email")
+  @@index([createdAt], map: "idx_auth_audit_created_at")
+  @@map("auth_audit_logs")
 }

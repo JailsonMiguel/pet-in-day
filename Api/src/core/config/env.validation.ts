@@ -17,6 +17,16 @@ export enum NodeEnv {
   Test = 'test',
 }
 
+export enum LogLevel {
+  Fatal = 'fatal',
+  Error = 'error',
+  Warn = 'warn',
+  Info = 'info',
+  Debug = 'debug',
+  Trace = 'trace',
+  Silent = 'silent',
+}
+
 export class EnvironmentVariables {
   @IsEnum(NodeEnv, {
     message: `NODE_ENV deve ser um de: ${Object.values(NodeEnv).join(', ')}`,
@@ -65,6 +75,12 @@ export class EnvironmentVariables {
   @IsInt()
   @Min(1)
   THROTTLE_LIMIT: number = 100;
+
+  /** Nível mínimo de log emitido pelo pino. */
+  @IsEnum(LogLevel, {
+    message: `LOG_LEVEL deve ser um de: ${Object.values(LogLevel).join(', ')}`,
+  })
+  LOG_LEVEL: LogLevel = LogLevel.Info;
 }
 
 /**

@@ -4,6 +4,7 @@ import { JwtModule } from '@nestjs/jwt';
 import { PassportModule } from '@nestjs/passport';
 import { EnvironmentVariables } from '../../core/config/env.validation';
 import { AuthService } from './auth.service';
+import { AuthAuditService } from './auth-audit.service';
 import { AuthController } from './auth.controller';
 import { JwtStrategy } from './strategies/jwt.strategy';
 
@@ -24,7 +25,7 @@ import { JwtStrategy } from './strategies/jwt.strategy';
     }),
   ],
   controllers: [AuthController],
-  providers: [AuthService, JwtStrategy],
+  providers: [AuthService, AuthAuditService, JwtStrategy],
   exports: [AuthService],
 })
 export class AuthModule {}

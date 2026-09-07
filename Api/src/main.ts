@@ -2,12 +2,19 @@ import { NestFactory } from '@nestjs/core';
 import { Logger, ValidationPipe } from '@nestjs/common';
 import { ConfigService } from '@nestjs/config';
 import { NestExpressApplication } from '@nestjs/platform-express';
+import { Logger as PinoLogger } from 'nestjs-pino';
 import helmet from 'helmet';
 import { AppModule } from './app.module';
 import { EnvironmentVariables, NodeEnv } from './core/config/env.validation';
 
 async function bootstrap() {
-  const app = await NestFactory.create<NestExpressApplication>(AppModule);
+  const app = await NestFactory.create<NestExpressApplication>(AppModule, {
+    bufferLogs: true,
+  });
+
+  // Encaminha todos os logs do Nest (inclusive os `Logger` de @nestjs/common)
+  // para o pino configurado em LoggerModule.
+  app.useLogger(app.get(PinoLogger));
 
   const config =
     app.get<ConfigService<EnvironmentVariables, true>>(ConfigService);

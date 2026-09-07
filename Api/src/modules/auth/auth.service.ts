@@ -12,6 +12,7 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto, RefreshTokenDto } from './dto/login.dto';
 import { UserRole, UserStatus, ConsentType } from '@prisma/client';
+import { AuthAuditService, AuthContext } from './auth-audit.service';
 
 @Injectable()
 export class AuthService {
@@ -19,14 +20,22 @@ export class AuthService {
     private readonly prisma: PrismaService,
     private readonly jwtService: JwtService,
     private readonly config: ConfigService<EnvironmentVariables, true>,
+    private readonly audit: AuthAuditService,
   ) {}
 
-  async register(dto: RegisterDto) {
+  async register(dto: RegisterDto, ctx: AuthContext = {}) {
     // 1. Verificar se e-mail já existe
     const existingUser = await this.prisma.user.findUnique({
       where: { email: dto.email },
     });
     if (existingUser) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'register',
+        success: false,
+        email: dto.email,
+        reason: 'email_taken',
+      });
       throw new ConflictException('E-mail já cadastrado');
     }
 
@@ -36,6 +45,13 @@ export class AuthService {
       where: { cpf: cleanCpf },
     });
     if (existingTutor) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'register',
+        success: false,
+        email: dto.email,
+        reason: 'cpf_taken',
+      });
       throw new ConflictException('CPF já cadastrado');
     }
 
@@ -76,6 +92,14 @@ export class AuthService {
       return { user, tutor };
     });
 
+    await this.audit.record({
+      ...ctx,
+      eventType: 'register',
+      success: true,
+      userId: result.user.id,
+      email: result.user.email,
+    });
+
     return {
       userId: result.user.id,
       email: result.user.email,
@@ -84,7 +108,7 @@ export class AuthService {
     };
   }
 
-  async login(dto: LoginDto) {
+  async login(dto: LoginDto, ctx: AuthContext = {}) {
     const user = await this.prisma.user.findUnique({
       where: { email: dto.email },
       include: {
@@ -94,6 +118,13 @@ export class AuthService {
     });
 
     if (!user || !user.passwordHash) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'login_failure',
+        success: false,
+        email: dto.email,
+        reason: 'user_not_found',
+      });
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -102,6 +133,14 @@ export class AuthService {
       user.passwordHash,
     );
     if (!isPasswordValid) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'login_failure',
+        success: false,
+        userId: user.id,
+        email: user.email,
+        reason: 'invalid_password',
+      });
       throw new UnauthorizedException('Credenciais inválidas');
     }
 
@@ -109,6 +148,14 @@ export class AuthService {
       user.status === UserStatus.blocked ||
       user.status === UserStatus.inactive
     ) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'login_failure',
+        success: false,
+        userId: user.id,
+        email: user.email,
+        reason: 'account_blocked',
+      });
       throw new UnauthorizedException('Conta bloqueada ou inativa');
     }
 
@@ -123,6 +170,14 @@ export class AuthService {
 
     const fullName =
       user.tutor?.fullName || user.veterinarian?.fullName || 'Usuário';
+
+    await this.audit.record({
+      ...ctx,
+      eventType: 'login_success',
+      success: true,
+      userId: user.id,
+      email: user.email,
+    });
 
     return {
       accessToken: tokens.accessToken,
@@ -139,7 +194,7 @@ export class AuthService {
     };
   }
 
-  async refreshTokens(dto: RefreshTokenDto) {
+  async refreshTokens(dto: RefreshTokenDto, ctx: AuthContext = {}) {
     const tokenHash = this.hashToken(dto.refreshToken);
 
     const storedToken = await this.prisma.refreshToken.findUnique({
@@ -152,6 +207,14 @@ export class AuthService {
       storedToken.revokedAt ||
       storedToken.expiresAt < new Date()
     ) {
+      await this.audit.record({
+        ...ctx,
+        eventType: 'token_refresh_failure',
+        success: false,
+        userId: storedToken?.userId ?? null,
+        email: storedToken?.user.email ?? null,
+        reason: 'invalid_or_expired',
+      });
       throw new UnauthorizedException('Refresh token inválido ou expirado');
     }
 
@@ -168,6 +231,14 @@ export class AuthService {
       storedToken.user.role,
     );
 
+    await this.audit.record({
+      ...ctx,
+      eventType: 'token_refresh',
+      success: true,
+      userId: storedToken.user.id,
+      email: storedToken.user.email,
+    });
+
     return {
       accessToken: tokens.accessToken,
       refreshToken: tokens.refreshToken,
@@ -177,7 +248,7 @@ export class AuthService {
     };
   }
 
-  async logout(dto: RefreshTokenDto) {
+  async logout(dto: RefreshTokenDto, ctx: AuthContext = {}) {
     const tokenHash = this.hashToken(dto.refreshToken);
     const storedToken = await this.prisma.refreshToken.findUnique({
       where: { tokenHash },
@@ -189,6 +260,13 @@ export class AuthService {
         data: { revokedAt: new Date() },
       });
     }
+
+    await this.audit.record({
+      ...ctx,
+      eventType: 'logout',
+      success: true,
+      userId: storedToken?.userId ?? null,
+    });
   }
 
   private async generateTokens(userId: string, email: string, role: string) {

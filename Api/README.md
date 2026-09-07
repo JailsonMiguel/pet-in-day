@@ -44,9 +44,18 @@ $ cp .env.example .env
 # Gerar um JWT_SECRET forte e colar no .env
 $ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
-# Executar migrations do Prisma (se necessário)
-$ npx prisma migrate dev
+# Banco novo (vazio): aplica todas as migrations
+$ npx prisma migrate deploy
+
+# Banco já existente (criado antes via `prisma db push`): marque o baseline
+# como aplicado uma única vez e então aplique as migrations pendentes
+$ npx prisma migrate resolve --applied 0_init
+$ npx prisma migrate deploy
 ```
+
+> As migrations ficam em [`prisma/migrations`](prisma/migrations). `0_init` é o
+> baseline com o schema completo anterior; `20260906120000_add_auth_audit_log`
+> cria a tabela de auditoria de autenticação.
 
 > As variáveis de ambiente são validadas no boot (`src/core/config/env.validation.ts`).
 > A aplicação **não sobe** se `DATABASE_URL` ou `JWT_SECRET` estiverem ausentes/inválidos
@@ -63,6 +72,7 @@ $ npx prisma migrate dev
 | `CORS_ORIGINS` | não | `` (vazio) | Allowlist de origens (separadas por vírgula). Vazio libera tudo em dev e bloqueia tudo em produção |
 | `THROTTLE_TTL_SECONDS` | não | `60` | Janela do rate limit global (por IP) |
 | `THROTTLE_LIMIT` | não | `100` | Máximo de requisições por janela; `login` e `register` usam limite próprio de 5/min |
+| `LOG_LEVEL` | não | `info` | Nível mínimo do pino: `fatal` \| `error` \| `warn` \| `info` \| `debug` \| `trace` \| `silent` |
 
 ### Segurança HTTP
 
@@ -87,7 +97,22 @@ $ npm run test
 ```
 
 Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
-token, logout, registro), `JwtStrategy`, `PetsService` e `GlobalExceptionFilter`.
+token, logout, registro), `AuthAuditService`, `JwtStrategy`, `PetsService` e
+`GlobalExceptionFilter`.
+
+### Observabilidade e Auditoria
+
+Logging estruturado via **pino** (`nestjs-pino`), configurado em
+[`src/core/logging`](src/core/logging/logger.module.ts): uma linha JSON por
+evento em produção, `pino-pretty` fora dela, nível controlado por `LOG_LEVEL`.
+`authorization`, `cookie` e `x-api-key` são redigidos antes de qualquer escrita.
+Cada request recebe um `req.id` para correlação.
+
+Eventos de autenticação (login ok/falha, logout, refresh ok/falha, cadastro)
+são persistidos na tabela `auth_audit_logs` pelo `AuthAuditService` — trilha de
+auditoria para fins de LGPD, com `ipAddress`, `userAgent` e o motivo da falha
+(`invalid_password`, `account_blocked`, …). A gravação é *best-effort*: uma
+falha ao auditar é logada, mas nunca interrompe o fluxo de autenticação.
 
 ### Tratamento de Erros
 
