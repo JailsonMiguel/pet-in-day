@@ -1,0 +1,25 @@
+name: petemdia
+
+services:
+  postgres:
+    image: postgres:16-alpine
+    container_name: petemdia-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: petemdia
+      POSTGRES_PASSWORD: petemdia
+      POSTGRES_DB: petemdia
+    # Porta do host em 5434 para não colidir com um Postgres nativo em 5432/5433.
+    # Dentro do container o Postgres continua em 5432.
+    ports:
+      - '5434:5432'
+    volumes:
+      - petemdia-pgdata:/var/lib/postgresql/data
+    healthcheck:
+      test: ['CMD-SHELL', 'pg_isready -U petemdia -d petemdia']
+      interval: 5s
+      timeout: 5s
+      retries: 10
+
+volumes:
+  petemdia-pgdata:

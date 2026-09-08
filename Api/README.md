@@ -33,6 +33,11 @@ API Backend para a plataforma **PetEmDia**, responsável pelo gerenciamento de c
 
 ## 🏁 Como Executar
 
+### Pré-requisitos
+
+- Node.js 22
+- Docker + Docker Compose (para o banco de desenvolvimento)
+
 ### Configuração do Ambiente
 ```bash
 # Instalar dependências
@@ -44,6 +49,9 @@ $ cp .env.example .env
 # Gerar um JWT_SECRET forte e colar no .env
 $ node -e "console.log(require('crypto').randomBytes(48).toString('hex'))"
 
+# Subir o Postgres local (container `petemdia-postgres`, porta 5434 no host)
+$ npm run db:up
+
 # Banco novo (vazio): aplica todas as migrations
 $ npx prisma migrate deploy
 
@@ -52,6 +60,23 @@ $ npx prisma migrate deploy
 $ npx prisma migrate resolve --applied 0_init
 $ npx prisma migrate deploy
 ```
+
+O banco de desenvolvimento roda em container, definido em
+[`docker-compose.yml`](docker-compose.yml) (`postgres:16-alpine`, volume nomeado
+`petemdia-pgdata`). O host expõe a porta **5434** (o container usa 5432
+internamente) para não colidir com uma instalação nativa do Postgres. Scripts
+auxiliares:
+
+| Script | Ação |
+| --- | --- |
+| `npm run db:up` | Sobe o Postgres em background |
+| `npm run db:down` | Para o container (preserva os dados) |
+| `npm run db:reset` | Destrói o volume e recria o banco do zero |
+| `npm run db:logs` | Acompanha os logs do Postgres |
+
+Não há Postgres local instalado? Basta o Docker — nada é instalado na máquina
+além do container. Quem preferir um Postgres nativo pode apontar o
+`DATABASE_URL` para ele; a estratégia padrão do projeto, porém, é o container.
 
 > As migrations ficam em [`prisma/migrations`](prisma/migrations). `0_init` é o
 > baseline com o schema completo anterior; `20260906120000_add_auth_audit_log`
