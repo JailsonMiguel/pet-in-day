@@ -76,4 +76,38 @@ describe('JwtStrategy', () => {
       UnauthorizedException,
     );
   });
+
+  it('lança UnauthorizedException quando o usuário foi removido (soft delete)', async () => {
+    mockPrismaService.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      status: 'active',
+      deletedAt: new Date(),
+    });
+
+    await expect(strategy.validate(payload)).rejects.toThrow(
+      UnauthorizedException,
+    );
+  });
+
+  it('consulta apenas campos não sensíveis do usuário (select explícito)', async () => {
+    mockPrismaService.user.findUnique.mockResolvedValue({
+      id: 'user-1',
+      status: 'active',
+    });
+
+    await strategy.validate(payload);
+
+    expect(mockPrismaService.user.findUnique).toHaveBeenCalledWith({
+      where: { id: 'user-1' },
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        tutor: { select: { id: true } },
+        veterinarian: { select: { id: true } },
+      },
+    });
+  });
 });

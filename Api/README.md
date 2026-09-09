@@ -13,11 +13,11 @@ API Backend para a plataforma **PetEmDia**, responsável pelo gerenciamento de c
 - `POST /v1/auth/logout`: Revogação de Refresh Token.
 
 ### 2. `Pets` (`/v1/pets`)
-- `POST /v1/pets`: Cadastro de pet com código público único (`publicCode`) e vínculo ao Tutor autenticado.
-- `GET /v1/pets`: Listagem de todos os pets associados ao tutor autenticado.
-- `GET /v1/pets/:id`: Detalhes de um pet específico (com verificação de vínculo/permissão).
-- `PATCH /v1/pets/:id`: Atualização de dados do pet (peso, raça, foto, microchip, status).
-- `DELETE /v1/pets/:id`: Soft delete (`deletedAt` + status `archived`).
+- `POST /v1/pets`: Cadastro de pet com código público único (`publicCode`) e vínculo ao Tutor autenticado (como tutor principal).
+- `GET /v1/pets`: Listagem paginada dos pets do tutor autenticado. Query: `?page` (padrão 1), `?limit` (padrão 20, máx 100), `?status`, `?species`, `?sort` (`createdAt` \| `-createdAt` \| `name` \| `-name`). Resposta: `{ data, meta: { page, limit, total, totalPages } }`.
+- `GET /v1/pets/:id`: Detalhes de um pet específico. Liberado para qualquer tutor vinculado (ou `platform_admin`).
+- `PATCH /v1/pets/:id`: Atualização parcial. **Apenas o tutor principal** (`isPrimary`) ou `platform_admin`; co-tutores recebem `403`.
+- `DELETE /v1/pets/:id`: Soft delete (`deletedAt` + status `archived`). Mesma regra do `PATCH`.
 
 ---
 
@@ -105,6 +105,20 @@ além do container. Quem preferir um Postgres nativo pode apontar o
 - **CORS** opera por allowlist via `CORS_ORIGINS`; requisições sem `Origin` (curl, apps mobile) continuam permitidas.
 - **Rate limiting** global via `@nestjs/throttler` (`ThrottlerGuard` registrado como guard global), com limite reforçado de 5 requisições/minuto em `POST /v1/auth/login` e `POST /v1/auth/register`.
 
+### Autenticação e autorização
+
+A API é **autenticada por padrão**: `JwtAuthGuard` e `RolesGuard` são guards
+globais (`APP_GUARD` em [`app.module.ts`](src/app.module.ts), na ordem
+throttler → autenticação → papel). Toda rota exige `Authorization: Bearer <access_token>`
+a menos que seja marcada com `@Public()` (hoje: `GET /` e todo o `AuthController`).
+
+- `@Public()` — dispensa autenticação na rota ou no controller.
+- `@Roles(UserRole.veterinarian, ...)` — restringe a rota aos papéis listados;
+  sem o decorator, qualquer usuário autenticado passa. Falha de papel retorna `403`.
+- `@CurrentUser()` — injeta o usuário da request. O `JwtStrategy` usa `select`
+  explícito: `passwordHash` e `mfaSecret` nunca são anexados; usuários com
+  `deletedAt`, `blocked` ou `inactive` são rejeitados no `validate`.
+
 ### Rodar a Aplicação
 ```bash
 # Desenvolvimento (Watch mode)
@@ -122,8 +136,9 @@ $ npm run test
 ```
 
 Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
-token, logout, registro), `AuthAuditService`, `JwtStrategy`, `PetsService` e
-`GlobalExceptionFilter`.
+token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
+`RolesGuard`, `PetsService` (criação, paginação/filtros, regra de tutor
+principal em `update`/`remove`) e `GlobalExceptionFilter`.
 
 ### Observabilidade e Auditoria
 

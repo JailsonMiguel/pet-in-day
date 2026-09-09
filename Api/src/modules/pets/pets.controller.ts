@@ -6,19 +6,19 @@ import {
   Patch,
   Param,
   Delete,
-  UseGuards,
+  Query,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
 import { PetsService } from './pets.service';
 import { CreatePetDto } from './dto/create-pet.dto';
+import { ListPetsQueryDto } from './dto/list-pets-query.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
-import { JwtAuthGuard } from '../../core/guards/jwt-auth.guard';
 import { CurrentUser } from '../../core/decorators/current-user.decorator';
 import type { AuthenticatedUser } from '../../core/types/authenticated-user';
 
+// Autenticação garantida pelo `JwtAuthGuard` global (AppModule).
 @Controller('v1/pets')
-@UseGuards(JwtAuthGuard)
 export class PetsController {
   constructor(private readonly petsService: PetsService) {}
 
@@ -32,9 +32,12 @@ export class PetsController {
   }
 
   @Get()
-  async findAll(@CurrentUser() user: AuthenticatedUser) {
-    const data = await this.petsService.findAllForTutor(user.id);
-    return { data };
+  async findAll(
+    @CurrentUser() user: AuthenticatedUser,
+    @Query() query: ListPetsQueryDto,
+  ) {
+    // Retorna { data, meta } — envelope de listagem paginada.
+    return this.petsService.findAllForTutor(user.id, query);
   }
 
   @Get(':id')

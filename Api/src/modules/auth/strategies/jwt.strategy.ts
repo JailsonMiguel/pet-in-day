@@ -25,15 +25,26 @@ export class JwtStrategy extends PassportStrategy(Strategy, 'jwt') {
   }
 
   async validate(payload: JwtPayload) {
+    // `select` explícito: nunca anexa `passwordHash` / `mfaSecret` à request.
     const user = await this.prisma.user.findUnique({
       where: { id: payload.sub },
-      include: {
-        tutor: true,
-        veterinarian: true,
+      select: {
+        id: true,
+        email: true,
+        role: true,
+        status: true,
+        deletedAt: true,
+        tutor: { select: { id: true } },
+        veterinarian: { select: { id: true } },
       },
     });
 
-    if (!user || user.status === 'blocked' || user.status === 'inactive') {
+    if (
+      !user ||
+      user.deletedAt ||
+      user.status === 'blocked' ||
+      user.status === 'inactive'
+    ) {
       throw new UnauthorizedException('Usuário inválido ou bloqueado');
     }
 

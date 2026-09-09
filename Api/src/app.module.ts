@@ -10,6 +10,8 @@ import {
   validateEnv,
 } from './core/config/env.validation';
 import { GlobalExceptionFilter } from './core/filters/global-exception.filter';
+import { JwtAuthGuard } from './core/guards/jwt-auth.guard';
+import { RolesGuard } from './core/guards/roles.guard';
 import { PrismaModule } from './core/database/prisma.module';
 import { LoggerModule } from './core/logging/logger.module';
 import { AuthModule } from './modules/auth/auth.module';
@@ -42,9 +44,18 @@ import { PetsModule } from './modules/pets/pets.module';
   controllers: [AppController],
   providers: [
     AppService,
+    // Ordem importa: throttler → autenticação → autorização por papel.
     {
       provide: APP_GUARD,
       useClass: ThrottlerGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: JwtAuthGuard,
+    },
+    {
+      provide: APP_GUARD,
+      useClass: RolesGuard,
     },
     {
       provide: APP_FILTER,

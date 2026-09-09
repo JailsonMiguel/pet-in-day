@@ -10,9 +10,15 @@ import {
 import { Throttle } from '@nestjs/throttler';
 import { AuthService } from './auth.service';
 import { AuthContext } from './auth-audit.service';
+import { Public } from '../../core/decorators/public.decorator';
 import { RegisterDto } from './dto/register.dto';
 import { LoginDto, RefreshTokenDto } from './dto/login.dto';
 
+/**
+ * Todas as rotas de autenticação são públicas (não exigem Bearer token): elas
+ * operam sobre credenciais e refresh tokens enviados no corpo da requisição.
+ */
+@Public()
 @Controller('v1/auth')
 export class AuthController {
   constructor(private readonly authService: AuthService) {}

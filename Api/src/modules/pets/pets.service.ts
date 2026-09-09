@@ -8,8 +8,9 @@ import {
 import * as crypto from 'crypto';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreatePetDto } from './dto/create-pet.dto';
+import { ListPetsQueryDto, PetSortField } from './dto/list-pets-query.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
-import { PetStatus, UserRole } from '@prisma/client';
+import { Prisma, PetStatus, UserRole } from '@prisma/client';
 
 @Injectable()
 export class PetsService {
@@ -68,48 +69,46 @@ export class PetsService {
     return pet;
   }
 
-  async findAllForTutor(userId: string) {
+  async findAllForTutor(userId: string, query: ListPetsQueryDto) {
+    const { page, limit } = query;
     const tutor = await this.prisma.tutor.findUnique({
       where: { userId },
     });
 
     if (!tutor) {
-      return [];
+      return { data: [], meta: this.buildMeta(page, limit, 0) };
     }
 
+    const where: Prisma.TutorPetWhereInput = {
+      tutorId: tutor.id,
+      pet: {
+        deletedAt: null,
+        ...(query.status && { status: query.status }),
+        ...(query.species && { species: query.species }),
+      },
+    };
+
+    const total = await this.prisma.tutorPet.count({ where });
+
     const tutorPets = await this.prisma.tutorPet.findMany({
-      where: {
-        tutorId: tutor.id,
-        pet: {
-          deletedAt: null,
-        },
-      },
-      include: {
-        pet: true,
-      },
-      orderBy: {
-        createdAt: 'desc',
-      },
+      where,
+      include: { pet: true },
+      orderBy: { pet: this.resolveSort(query.sort) },
+      skip: (page - 1) * limit,
+      take: limit,
     });
 
-    return tutorPets.map((tp) => ({
+    const data = tutorPets.map((tp) => ({
       ...tp.pet,
       isPrimary: tp.isPrimary,
       relationship: tp.relationship,
     }));
+
+    return { data, meta: this.buildMeta(page, limit, total) };
   }
 
   async findOne(userId: string, userRole: string, petId: string) {
-    const pet = await this.prisma.pet.findFirst({
-      where: {
-        id: petId,
-        deletedAt: null,
-      },
-    });
-
-    if (!pet) {
-      throw new NotFoundException('Pet não encontrado');
-    }
+    const pet = await this.getActivePetOrThrow(petId);
 
     if (userRole === UserRole.platform_admin) {
       return pet;
@@ -147,7 +146,8 @@ export class PetsService {
     petId: string,
     dto: UpdatePetDto,
   ) {
-    await this.findOne(userId, userRole, petId);
+    await this.getActivePetOrThrow(petId);
+    await this.assertPrimaryTutorOrAdmin(userId, userRole, petId);
 
     if (dto.microchip) {
       const existingMicrochip = await this.prisma.pet.findFirst({
@@ -183,8 +183,10 @@ export class PetsService {
   }
 
   async remove(userId: string, userRole: string, petId: string) {
-    await this.findOne(userId, userRole, petId);
+    await this.getActivePetOrThrow(petId);
+    await this.assertPrimaryTutorOrAdmin(userId, userRole, petId);
 
+    // Soft delete: marca `deletedAt` e move o status para `archived`.
     await this.prisma.pet.update({
       where: { id: petId },
       data: {
@@ -194,6 +196,86 @@ export class PetsService {
     });
 
     return { message: 'Pet removido com sucesso' };
+  }
+
+  private async getActivePetOrThrow(petId: string) {
+    const pet = await this.prisma.pet.findFirst({
+      where: { id: petId, deletedAt: null },
+    });
+
+    if (!pet) {
+      throw new NotFoundException('Pet não encontrado');
+    }
+
+    return pet;
+  }
+
+  /**
+   * Alterar ou remover um pet é exclusivo do tutor principal (`isPrimary`) ou de
+   * um `platform_admin`. Co-tutores têm apenas leitura.
+   */
+  private async assertPrimaryTutorOrAdmin(
+    userId: string,
+    userRole: string,
+    petId: string,
+  ): Promise<void> {
+    if (userRole === UserRole.platform_admin) {
+      return;
+    }
+
+    const tutor = await this.prisma.tutor.findUnique({
+      where: { userId },
+    });
+
+    if (!tutor) {
+      throw new ForbiddenException('Acesso negado ao pet');
+    }
+
+    const link = await this.prisma.tutorPet.findUnique({
+      where: {
+        tutorId_petId: {
+          tutorId: tutor.id,
+          petId,
+        },
+      },
+    });
+
+    if (!link) {
+      throw new ForbiddenException(
+        'Você não tem permissão para acessar os dados deste pet',
+      );
+    }
+
+    if (!link.isPrimary) {
+      throw new ForbiddenException(
+        'Apenas o tutor principal pode alterar ou remover este pet',
+      );
+    }
+  }
+
+  private resolveSort(
+    sort: PetSortField | undefined,
+  ): Prisma.PetOrderByWithRelationInput {
+    switch (sort) {
+      case 'createdAt':
+        return { createdAt: 'asc' };
+      case 'name':
+        return { name: 'asc' };
+      case '-name':
+        return { name: 'desc' };
+      case '-createdAt':
+      default:
+        return { createdAt: 'desc' };
+    }
+  }
+
+  private buildMeta(page: number, limit: number, total: number) {
+    return {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 
   private generatePublicCode(): string {
