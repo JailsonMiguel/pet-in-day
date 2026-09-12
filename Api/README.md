@@ -19,6 +19,81 @@ API Backend para a plataforma **PetEmDia**, responsável pelo gerenciamento de c
 - `PATCH /v1/pets/:id`: Atualização parcial. **Apenas o tutor principal** (`isPrimary`) ou `platform_admin`; co-tutores recebem `403`.
 - `DELETE /v1/pets/:id`: Soft delete (`deletedAt` + status `archived`). Mesma regra do `PATCH`.
 
+### 3. `Vaccines` (`/v1/vaccines`) — catálogo de vacinas
+
+Primeira peça da Carteira de Vacinação. Leitura liberada para qualquer usuário
+autenticado; escrita restrita a `platform_admin`.
+
+- `GET /v1/vaccines`: Lista o catálogo. Query: `?species`, `?isActive` (`true`/`false`).
+- `GET /v1/vaccines/:id`: Detalhe de uma vacina, com o esquema de doses (`protocols`).
+- `POST /v1/vaccines` (`platform_admin`): Cria a vacina e, opcionalmente, seu esquema de doses (`protocols: [{ doseNumber, minAgeDays?, intervalDays?, isBooster?, notes? }]`).
+- `PATCH /v1/vaccines/:id` (`platform_admin`): Atualiza dados da vacina (nome, fabricante, espécies, descrição, `isActive`). O esquema de doses não é editável por aqui — é definido na criação.
+
+### 4. `Clinics` (`/v1/clinics`) — cadastro de clínicas
+
+Auto-serviço: qualquer usuário autenticado pode cadastrar uma clínica e vira
+automaticamente seu administrador (`ClinicUser.role = admin`). Autorização de
+recurso (quem pode editar/vincular) é resolvida no service, no mesmo padrão do
+`PetsService` (não depende de `@Roles`, e sim de vínculo com o recurso).
+
+- `POST /v1/clinics`: Cadastra a clínica (`cnpj`, `legalName`, `tradeName?`, `email`, `phone?`, `address`). CNPJ único; aceita qualquer formatação (dígitos são extraídos).
+- `GET /v1/clinics/:id`: Detalhe da clínica.
+- `PATCH /v1/clinics/:id`: **Apenas o admin da clínica** (ou `platform_admin`). `cnpj` não é editável.
+- `POST /v1/clinics/:id/veterinarians`: Vincula um veterinário já registrado à clínica, buscando por `crmv`. **Apenas o admin da clínica** (ou `platform_admin`). `404` se o CRMV não existir, `409` se o vínculo já existir.
+
+Não implementado: convite por e-mail/token (`/clinics/{id}/invites/*`), busca
+geográfica (`/clinics/search`), cadastro de recepção/staff.
+
+### 5. `Veterinarians` (`/v1/veterinarians`)
+
+- `POST /v1/veterinarians/register` (`@Public`): Autocadastro do veterinário (email, senha, nome, `crmv`, `crmvState`, `specialty?`) — cria `User` (`role: veterinarian`) e o perfil `Veterinarian`. CRMV único. Simplificação deliberada: o contrato original previa convite pela clínica; aqui o veterinário se cadastra como o tutor faz, e uma clínica o vincula depois via `POST /v1/clinics/:id/veterinarians`.
+- `GET /v1/veterinarians/me`: Perfil do veterinário autenticado + lista de clínicas ativas vinculadas.
+
+Não implementado: `pending-prescriptions` (lista de prescrições pendentes por
+veterinário — hoje dá para chegar lá via `GET /v1/prescriptions/:id` uma a uma).
+
+### 6. `Prescriptions` (`/v1/prescriptions`)
+
+Só `@Roles(veterinarian)` cria; leitura/edição são autorizadas por recurso no
+service (autor, colega ativo na mesma clínica, ou `platform_admin`).
+
+- `POST /v1/prescriptions`: Prescreve uma dose (`petId`, `clinicId`, `vaccineId`, `doseNumber?` [padrão 1], `scheduledAt?`, `notes?`). Exige que o veterinário esteja **ativamente vinculado** à clínica informada. `404` pet/vacina inexistente ou vacina inativa; `422` pet arquivado/falecido.
+- `GET /v1/prescriptions/:id`: Detalhe.
+- `PATCH /v1/prescriptions/:id`: Atualiza `status` (`scheduled`/`cancelled`/`no_show`) e/ou `notes`. Definir `status: "applied"` diretamente é bloqueado (`400`) — isso só acontece via `POST /v1/vaccinations`.
+
+### 7. `Vaccinations` (`/v1/vaccinations`) — aplicação e retificação
+
+- `POST /v1/vaccinations` (`@Roles(veterinarian)`): Registra a aplicação (`prescriptionId?`, `petId`, `clinicId`, `vaccineId`, `doseNumber`, `batchNumber`, `batchExpiry`, `applicationSite?`, `appliedAt`, `notes?`). Calcula `nextDoseAt` a partir do próximo `VaccineProtocol` da vacina (`appliedAt` + `intervalDays` da dose seguinte; `null` se não houver próxima dose). Gera `qrCodeToken` público. Se `prescriptionId` for informado: valida que pet/vacina/dose batem com a prescrição, marca-a como `applied` e bloqueia reaplicação (`409` se já aplicada).
+- `GET /v1/vaccinations/:id`: Detalhe (mesma regra de autorização de `Prescriptions`).
+- `POST /v1/vaccinations/:id/rectify`: Retificação **auditada** — nunca edita o registro original diretamente. Cria um `VaccinationRectification` com o "antes/depois" (`previousData`/`newData`) e move o status para `rectified`. Retorna `updatedFields` (só os campos que de fato mudaram).
+- `GET /v1/vaccinations/verify/:qrCodeToken` (`@Public`): Verificação pública e limitada. Token inexistente ou vacinação anulada (`voided`) → `{ valid: false }` (sempre `200`, nunca `404`, para não vazar a existência do registro).
+
+### 8. Carteira de vacinação — `GET /v1/pets/:id/wallet`
+
+Adicionado ao `PetsController`/`PetsService` (reaproveita a mesma autorização de
+`GET /v1/pets/:id`: tutor vinculado ou `platform_admin`). Agrega:
+
+- `summary`: `totalApplied` (vacinações), `totalPending`/`totalOverdue` (prescrições `pending`/`scheduled`, com/sem `scheduledAt` vencido) e um `status` derivado (`overdue` > `pending` > `up_to_date` > `unknown`).
+- `entries`: vacinações aplicadas + prescrições em aberto (prescrições `cancelled`/`no_show`/`applied` não aparecem — a aplicada já virou uma entrada de vacinação), ordenadas por data mais recente primeiro.
+
+Ainda não implementado: `GET /v1/pets/:id/wallet/export` (PDF), lembretes
+(`vaccination_reminders`), notificações.
+
+### 9. Consentimento LGPD — `Clinics` ↔ `Pets` (`/v1/pets/:petId/consents`)
+
+Um veterinário só pode prescrever (`POST /v1/prescriptions`) ou aplicar
+(`POST /v1/vaccinations`) em um pet se a clínica dele tiver consentimento
+ativo do tutor para aquele pet — sem isso, ambas as rotas retornam `403`.
+Autorização por recurso no service, no mesmo padrão do `PetsService`
+(`@Roles(tutor)` só nas rotas de escrita).
+
+- `POST /v1/pets/:petId/consents` (`@Roles(tutor)`): Concede o consentimento (`clinicId`). Qualquer tutor vinculado ao pet pode conceder (não só o principal). `404` se pet ou clínica não existirem; `409` se já houver consentimento ativo para essa clínica.
+- `GET /v1/pets/:petId/consents`: Lista o histórico de consentimentos (concedidos e revogados) do pet. Mesma regra de acesso de `GET /v1/pets/:id` (tutor vinculado ou `platform_admin`).
+- `DELETE /v1/pets/:petId/consents/:clinicId` (`@Roles(tutor)`): Revoga o consentimento ativo daquela clínica (`revokedAt`). `404` se não houver consentimento ativo para revogar.
+
+Não implementado: notificação da clínica quando um consentimento é concedido
+ou revogado.
+
 ---
 
 ## 🛠️ Tecnologias e Dependências
@@ -59,7 +134,19 @@ $ npx prisma migrate deploy
 # como aplicado uma única vez e então aplique as migrations pendentes
 $ npx prisma migrate resolve --applied 0_init
 $ npx prisma migrate deploy
+
+# Popular o catálogo de vacinas de desenvolvimento (V10, Antirrábica)
+$ npx prisma db seed
 ```
+
+O seed ([`prisma/seed.ts`](prisma/seed.ts)) é idempotente — rodar de novo não
+duplica as vacinas já existentes (checa por nome antes de criar).
+
+> Clínica e veterinário já têm autocadastro (`POST /v1/clinics`,
+> `POST /v1/veterinarians/register`). Só **`platform_admin` continua sem
+> bootstrap** pela API — para testar rotas restritas a esse papel em dev,
+> promova um usuário direto no banco:
+> `UPDATE users SET role = 'platform_admin' WHERE email = '...';`.
 
 O banco de desenvolvimento roda em container, definido em
 [`docker-compose.yml`](docker-compose.yml) (`postgres:16-alpine`, volume nomeado
@@ -138,7 +225,13 @@ $ npm run test
 Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
 token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
 `RolesGuard`, `PetsService` (criação, paginação/filtros, regra de tutor
-principal em `update`/`remove`) e `GlobalExceptionFilter`.
+principal em `update`/`remove`, agregação da carteira de vacinação),
+`VaccinesService`, `ClinicsService` (autorização por admin da clínica, vínculo
+de veterinário), `VeterinariansService`, `PrescriptionsService`,
+`VaccinationsService` (cálculo de `nextDoseAt`, retificação auditada,
+verificação pública, bloqueio sem consentimento do tutor), `ConsentsService`
+(concessão/revogação, autorização por vínculo com o pet) e
+`GlobalExceptionFilter`.
 
 ### Observabilidade e Auditoria
 

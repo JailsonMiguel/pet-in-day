@@ -10,7 +10,12 @@ import { PrismaService } from '../../core/database/prisma.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { ListPetsQueryDto, PetSortField } from './dto/list-pets-query.dto';
 import { UpdatePetDto } from './dto/update-pet.dto';
-import { Prisma, PetStatus, UserRole } from '@prisma/client';
+import {
+  Prisma,
+  PetStatus,
+  PrescriptionStatus,
+  UserRole,
+} from '@prisma/client';
 
 @Injectable()
 export class PetsService {
@@ -138,6 +143,108 @@ export class PetsService {
     }
 
     return pet;
+  }
+
+  /** Carteira de vacinação: histórico de aplicações + prescrições em aberto. */
+  async getWallet(userId: string, userRole: string, petId: string) {
+    const pet = await this.findOne(userId, userRole, petId);
+
+    const [prescriptions, vaccinations] = await Promise.all([
+      this.prisma.prescription.findMany({
+        where: { petId },
+        include: { vaccine: true },
+        orderBy: { prescribedAt: 'desc' },
+      }),
+      this.prisma.vaccination.findMany({
+        where: { petId },
+        include: { vaccine: true, veterinarian: true, clinic: true },
+        orderBy: { appliedAt: 'desc' },
+      }),
+    ]);
+
+    const openPrescriptions = prescriptions.filter(
+      (p) =>
+        p.status === PrescriptionStatus.pending ||
+        p.status === PrescriptionStatus.scheduled,
+    );
+    const now = new Date();
+    const overduePrescriptions = openPrescriptions.filter(
+      (p) => p.scheduledAt !== null && p.scheduledAt < now,
+    );
+
+    const summaryStatus =
+      overduePrescriptions.length > 0
+        ? 'overdue'
+        : openPrescriptions.length > 0
+          ? 'pending'
+          : vaccinations.length > 0
+            ? 'up_to_date'
+            : 'unknown';
+
+    const vaccinationEntries = vaccinations.map((v) => ({
+      type: 'vaccination' as const,
+      id: v.id,
+      vaccine: {
+        id: v.vaccine.id,
+        name: v.vaccine.name,
+        manufacturer: v.vaccine.manufacturer,
+      },
+      doseNumber: v.doseNumber,
+      status: v.status,
+      appliedAt: v.appliedAt,
+      batchNumber: v.batchNumber,
+      batchExpiry: v.batchExpiry,
+      nextDoseAt: v.nextDoseAt,
+      veterinarian: {
+        fullName: v.veterinarian.fullName,
+        crmv: v.veterinarian.crmv,
+      },
+      clinic: {
+        tradeName: v.clinic.tradeName,
+        cnpj: v.clinic.cnpj,
+      },
+      certificateUrl: v.certificateUrl,
+      qrCodeToken: v.qrCodeToken,
+      sortDate: v.appliedAt,
+    }));
+
+    const prescriptionEntries = openPrescriptions.map((p) => ({
+      type: 'prescription' as const,
+      id: p.id,
+      vaccine: { id: p.vaccine.id, name: p.vaccine.name },
+      doseNumber: p.doseNumber,
+      status: p.status,
+      scheduledAt: p.scheduledAt,
+      prescribedAt: p.prescribedAt,
+      sortDate: p.scheduledAt ?? p.prescribedAt,
+    }));
+
+    const entries = [...vaccinationEntries, ...prescriptionEntries]
+      .sort((a, b) => b.sortDate.getTime() - a.sortDate.getTime())
+      .map((entry) => {
+        const { sortDate, ...rest } = entry;
+        void sortDate; // usado só para ordenar; não deve vazar na resposta
+        return rest;
+      });
+
+    return {
+      pet: {
+        id: pet.id,
+        publicCode: pet.publicCode,
+        name: pet.name,
+        species: pet.species,
+        breed: pet.breed,
+        birthDate: pet.birthDate,
+        photoUrl: pet.photoUrl,
+      },
+      summary: {
+        status: summaryStatus,
+        totalApplied: vaccinations.length,
+        totalPending: openPrescriptions.length,
+        totalOverdue: overduePrescriptions.length,
+      },
+      entries,
+    };
   }
 
   async update(

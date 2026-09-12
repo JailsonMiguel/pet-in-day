@@ -1,7 +1,13 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { PetsService } from './pets.service';
 import { PrismaService } from '../../core/database/prisma.service';
-import { PetSpecies, PetStatus, UserRole } from '@prisma/client';
+import {
+  PetSpecies,
+  PetStatus,
+  PrescriptionStatus,
+  UserRole,
+  VaccinationStatus,
+} from '@prisma/client';
 import {
   BadRequestException,
   NotFoundException,
@@ -35,6 +41,12 @@ describe('PetsService', () => {
       findMany: jest.fn(),
       findUnique: jest.fn(),
       count: jest.fn(),
+    },
+    prescription: {
+      findMany: jest.fn(),
+    },
+    vaccination: {
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -207,6 +219,138 @@ describe('PetsService', () => {
       await expect(
         service.findOne('user-id-1', UserRole.tutor, 'pet-id-1'),
       ).rejects.toThrow(ForbiddenException);
+    });
+  });
+
+  describe('getWallet', () => {
+    beforeEach(() => {
+      mockPrismaService.pet.findFirst.mockResolvedValue({
+        id: 'pet-id-1',
+        publicCode: 'PET-A1B2C3',
+        name: 'Thor',
+        species: PetSpecies.dog,
+        breed: 'SRD',
+        birthDate: null,
+        photoUrl: null,
+        deletedAt: null,
+      });
+    });
+
+    it('agrega vacinações aplicadas e prescrições em aberto, mais recentes primeiro', async () => {
+      mockPrismaService.prescription.findMany.mockResolvedValue([
+        {
+          id: 'presc-1',
+          status: PrescriptionStatus.pending,
+          scheduledAt: new Date('2026-09-15'),
+          prescribedAt: new Date('2026-07-27'),
+          doseNumber: 2,
+          vaccine: { id: 'vaccine-2', name: 'Antirrábica' },
+        },
+        {
+          id: 'presc-2',
+          status: PrescriptionStatus.cancelled,
+          scheduledAt: null,
+          prescribedAt: new Date('2026-01-01'),
+          doseNumber: 1,
+          vaccine: { id: 'vaccine-2', name: 'Antirrábica' },
+        },
+      ]);
+      mockPrismaService.vaccination.findMany.mockResolvedValue([
+        {
+          id: 'vac-1',
+          status: VaccinationStatus.confirmed,
+          appliedAt: new Date('2026-01-10'),
+          doseNumber: 1,
+          batchNumber: 'LOT1',
+          batchExpiry: new Date('2027-01-10'),
+          nextDoseAt: new Date('2026-02-10'),
+          certificateUrl: null,
+          qrCodeToken: 'abc123',
+          vaccine: { id: 'vaccine-1', name: 'V10', manufacturer: null },
+          veterinarian: { fullName: 'Dr. Ricardo', crmv: 'SP-12345' },
+          clinic: { tradeName: 'PetCare', cnpj: '12345678000199' },
+        },
+      ]);
+
+      const result = await service.getWallet(
+        'user-id-1',
+        UserRole.platform_admin,
+        'pet-id-1',
+      );
+
+      expect(result.pet).toEqual({
+        id: 'pet-id-1',
+        publicCode: 'PET-A1B2C3',
+        name: 'Thor',
+        species: PetSpecies.dog,
+        breed: 'SRD',
+        birthDate: null,
+        photoUrl: null,
+      });
+      // A prescrição cancelada não conta como pendente nem aparece nas entries.
+      expect(result.summary).toEqual({
+        status: 'pending',
+        totalApplied: 1,
+        totalPending: 1,
+        totalOverdue: 0,
+      });
+      expect(result.entries).toHaveLength(2);
+      expect(result.entries[0]).toEqual(
+        expect.objectContaining({ type: 'prescription', id: 'presc-1' }),
+      );
+      expect(result.entries[1]).toEqual(
+        expect.objectContaining({ type: 'vaccination', id: 'vac-1' }),
+      );
+    });
+
+    it('status "overdue" quando há prescrição pendente com data vencida', async () => {
+      mockPrismaService.prescription.findMany.mockResolvedValue([
+        {
+          id: 'presc-1',
+          status: PrescriptionStatus.scheduled,
+          scheduledAt: new Date('2000-01-01'),
+          prescribedAt: new Date('2000-01-01'),
+          doseNumber: 1,
+          vaccine: { id: 'vaccine-1', name: 'V10' },
+        },
+      ]);
+      mockPrismaService.vaccination.findMany.mockResolvedValue([]);
+
+      const result = await service.getWallet(
+        'user-id-1',
+        UserRole.platform_admin,
+        'pet-id-1',
+      );
+
+      expect(result.summary.status).toBe('overdue');
+      expect(result.summary.totalOverdue).toBe(1);
+    });
+
+    it('status "unknown" quando não há histórico nem pendências', async () => {
+      mockPrismaService.prescription.findMany.mockResolvedValue([]);
+      mockPrismaService.vaccination.findMany.mockResolvedValue([]);
+
+      const result = await service.getWallet(
+        'user-id-1',
+        UserRole.platform_admin,
+        'pet-id-1',
+      );
+
+      expect(result.summary).toEqual({
+        status: 'unknown',
+        totalApplied: 0,
+        totalPending: 0,
+        totalOverdue: 0,
+      });
+      expect(result.entries).toEqual([]);
+    });
+
+    it('propaga a autorização de findOne (404 se o pet não existir)', async () => {
+      mockPrismaService.pet.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getWallet('user-id-1', UserRole.tutor, 'pet-id-1'),
+      ).rejects.toThrow(NotFoundException);
     });
   });
 

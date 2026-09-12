@@ -15,7 +15,13 @@ import { RolesGuard } from './core/guards/roles.guard';
 import { PrismaModule } from './core/database/prisma.module';
 import { LoggerModule } from './core/logging/logger.module';
 import { AuthModule } from './modules/auth/auth.module';
+import { ClinicsModule } from './modules/clinics/clinics.module';
+import { ConsentsModule } from './modules/consents/consents.module';
 import { PetsModule } from './modules/pets/pets.module';
+import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
+import { VaccinationsModule } from './modules/vaccinations/vaccinations.module';
+import { VaccinesModule } from './modules/vaccines/vaccines.module';
+import { VeterinariansModule } from './modules/veterinarians/veterinarians.module';
 
 @Module({
   imports: [
@@ -40,6 +46,12 @@ import { PetsModule } from './modules/pets/pets.module';
     PrismaModule,
     AuthModule,
     PetsModule,
+    VaccinesModule,
+    ClinicsModule,
+    ConsentsModule,
+    VeterinariansModule,
+    PrescriptionsModule,
+    VaccinationsModule,
   ],
   controllers: [AppController],
   providers: [

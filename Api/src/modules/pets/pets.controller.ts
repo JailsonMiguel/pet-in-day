@@ -49,6 +49,15 @@ export class PetsController {
     return { data };
   }
 
+  @Get(':id/wallet')
+  async getWallet(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const data = await this.petsService.getWallet(user.id, user.role, id);
+    return { data };
+  }
+
   @Patch(':id')
   async update(
     @CurrentUser() user: AuthenticatedUser,
