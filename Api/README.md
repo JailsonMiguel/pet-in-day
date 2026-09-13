@@ -48,9 +48,7 @@ geográfica (`/clinics/search`), cadastro de recepção/staff.
 
 - `POST /v1/veterinarians/register` (`@Public`): Autocadastro do veterinário (email, senha, nome, `crmv`, `crmvState`, `specialty?`) — cria `User` (`role: veterinarian`) e o perfil `Veterinarian`. CRMV único. Simplificação deliberada: o contrato original previa convite pela clínica; aqui o veterinário se cadastra como o tutor faz, e uma clínica o vincula depois via `POST /v1/clinics/:id/veterinarians`.
 - `GET /v1/veterinarians/me`: Perfil do veterinário autenticado + lista de clínicas ativas vinculadas.
-
-Não implementado: `pending-prescriptions` (lista de prescrições pendentes por
-veterinário — hoje dá para chegar lá via `GET /v1/prescriptions/:id` uma a uma).
+- `GET /v1/veterinarians/me/pending-prescriptions`: Prescrições do veterinário autenticado ainda não aplicadas (`pending`/`scheduled`), ordenadas por `scheduledAt` (agendadas primeiro) e depois `prescribedAt`. Cada item traz `isOverdue` (`scheduledAt` vencido) e um resumo de pet/vacina/clínica.
 
 ### 6. `Prescriptions` (`/v1/prescriptions`)
 

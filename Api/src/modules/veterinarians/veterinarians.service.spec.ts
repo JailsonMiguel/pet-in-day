@@ -1,6 +1,6 @@
 import { Test, TestingModule } from '@nestjs/testing';
 import { ConflictException, NotFoundException } from '@nestjs/common';
-import { UserRole, UserStatus } from '@prisma/client';
+import { PrescriptionStatus, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { VeterinariansService } from './veterinarians.service';
 
@@ -15,6 +15,9 @@ describe('VeterinariansService', () => {
     },
     veterinarian: {
       findUnique: jest.fn(),
+    },
+    prescription: {
+      findMany: jest.fn(),
     },
     $transaction: jest.fn(),
   };
@@ -160,6 +163,59 @@ describe('VeterinariansService', () => {
           },
         ],
       });
+    });
+  });
+
+  describe('findPendingPrescriptions', () => {
+    it('lança NotFoundException quando o usuário não tem perfil de veterinário', async () => {
+      mockPrismaService.veterinarian.findUnique.mockResolvedValue(null);
+
+      await expect(service.findPendingPrescriptions('user-1')).rejects.toThrow(
+        NotFoundException,
+      );
+    });
+
+    it('retorna as prescrições em aberto marcando as vencidas', async () => {
+      mockPrismaService.veterinarian.findUnique.mockResolvedValue({
+        id: 'vet-1',
+      });
+      mockPrismaService.prescription.findMany.mockResolvedValue([
+        {
+          id: 'p-1',
+          status: PrescriptionStatus.scheduled,
+          doseNumber: 1,
+          prescribedAt: new Date('2026-01-01T00:00:00.000Z'),
+          scheduledAt: new Date('2020-01-01T00:00:00.000Z'),
+          pet: {
+            id: 'pet-1',
+            name: 'Thor',
+            publicCode: 'ABC123',
+            species: 'dog',
+          },
+          vaccine: { id: 'vaccine-1', name: 'V10' },
+          clinic: {
+            id: 'clinic-1',
+            tradeName: 'PetCare',
+            legalName: 'PetCare LTDA',
+          },
+        },
+      ]);
+
+      const result = await service.findPendingPrescriptions('user-1');
+
+      expect(mockPrismaService.prescription.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({
+          where: expect.objectContaining({
+            veterinarianId: 'vet-1',
+            status: {
+              in: [PrescriptionStatus.pending, PrescriptionStatus.scheduled],
+            },
+          }) as unknown,
+        }),
+      );
+      expect(result).toEqual([
+        expect.objectContaining({ id: 'p-1', isOverdue: true }),
+      ]);
     });
   });
 });

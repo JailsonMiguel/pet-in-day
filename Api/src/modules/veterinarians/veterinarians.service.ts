@@ -4,7 +4,7 @@ import {
   NotFoundException,
 } from '@nestjs/common';
 import * as bcrypt from 'bcrypt';
-import { UserRole, UserStatus } from '@prisma/client';
+import { PrescriptionStatus, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { RegisterVeterinarianDto } from './dto/register-veterinarian.dto';
 
@@ -91,5 +91,58 @@ export class VeterinariansService {
         cnpj: link.clinic.cnpj,
       })),
     };
+  }
+
+  /** Prescrições do veterinário ainda não aplicadas (`pending`/`scheduled`), mais recentes agendadas primeiro. */
+  async findPendingPrescriptions(userId: string) {
+    const veterinarian = await this.getVeterinarianOrThrow(userId);
+
+    const prescriptions = await this.prisma.prescription.findMany({
+      where: {
+        veterinarianId: veterinarian.id,
+        status: {
+          in: [PrescriptionStatus.pending, PrescriptionStatus.scheduled],
+        },
+      },
+      include: { pet: true, vaccine: true, clinic: true },
+      orderBy: [{ scheduledAt: 'asc' }, { prescribedAt: 'asc' }],
+    });
+
+    const now = new Date();
+
+    return prescriptions.map((prescription) => ({
+      id: prescription.id,
+      status: prescription.status,
+      doseNumber: prescription.doseNumber,
+      prescribedAt: prescription.prescribedAt,
+      scheduledAt: prescription.scheduledAt,
+      isOverdue:
+        prescription.scheduledAt !== null && prescription.scheduledAt < now,
+      pet: {
+        id: prescription.pet.id,
+        name: prescription.pet.name,
+        publicCode: prescription.pet.publicCode,
+        species: prescription.pet.species,
+      },
+      vaccine: {
+        id: prescription.vaccine.id,
+        name: prescription.vaccine.name,
+      },
+      clinic: {
+        id: prescription.clinic.id,
+        tradeName: prescription.clinic.tradeName,
+        legalName: prescription.clinic.legalName,
+      },
+    }));
+  }
+
+  private async getVeterinarianOrThrow(userId: string) {
+    const veterinarian = await this.prisma.veterinarian.findUnique({
+      where: { userId },
+    });
+    if (!veterinarian) {
+      throw new NotFoundException('Perfil de veterinário não encontrado');
+    }
+    return veterinarian;
   }
 }

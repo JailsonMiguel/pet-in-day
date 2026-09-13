@@ -22,4 +22,12 @@ export class VeterinariansController {
     const data = await this.veterinariansService.findMe(user.id);
     return { data };
   }
+
+  @Get('me/pending-prescriptions')
+  async pendingPrescriptions(@CurrentUser() user: AuthenticatedUser) {
+    const data = await this.veterinariansService.findPendingPrescriptions(
+      user.id,
+    );
+    return { data };
+  }
 }
