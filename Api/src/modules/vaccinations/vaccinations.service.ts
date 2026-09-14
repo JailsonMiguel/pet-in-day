@@ -8,8 +8,10 @@ import {
 } from '@nestjs/common';
 import * as crypto from 'crypto';
 import {
+  NotificationChannel,
   PetStatus,
   PrescriptionStatus,
+  Prisma,
   UserRole,
   VaccinationStatus,
 } from '@prisma/client';
@@ -23,6 +25,9 @@ const INCLUDE_DETAILS = {
   clinic: true,
   pet: true,
 } as const;
+
+// Antecedência do lembrete em relação à data da próxima dose.
+const REMINDER_LEAD_DAYS = 3;
 
 @Injectable()
 export class VaccinationsService {
@@ -128,6 +133,15 @@ export class VaccinationsService {
         await tx.prescription.update({
           where: { id: dto.prescriptionId },
           data: { status: PrescriptionStatus.applied },
+        });
+      }
+
+      if (nextDoseAt) {
+        await this.createReminders(tx, {
+          petId: dto.petId,
+          vaccineId: dto.vaccineId,
+          vaccinationId: vaccination.id,
+          remindAt: this.addDays(nextDoseAt, -REMINDER_LEAD_DAYS),
         });
       }
 
@@ -312,6 +326,37 @@ export class VaccinationsService {
         'O tutor não autorizou esta clínica a tratar deste pet',
       );
     }
+  }
+
+  /** Cria um lembrete para cada tutor vinculado ao pet (sem envio real — só o registro). */
+  private async createReminders(
+    tx: Prisma.TransactionClient,
+    params: {
+      petId: string;
+      vaccineId: string;
+      remindAt: Date;
+      vaccinationId?: string;
+    },
+  ): Promise<void> {
+    const tutorLinks = await tx.tutorPet.findMany({
+      where: { petId: params.petId },
+      select: { tutorId: true },
+    });
+
+    if (tutorLinks.length === 0) {
+      return;
+    }
+
+    await tx.vaccinationReminder.createMany({
+      data: tutorLinks.map((link) => ({
+        petId: params.petId,
+        tutorId: link.tutorId,
+        vaccineId: params.vaccineId,
+        vaccinationId: params.vaccinationId,
+        remindAt: params.remindAt,
+        channel: NotificationChannel.push,
+      })),
+    });
   }
 
   private addDays(date: Date, days: number): Date {

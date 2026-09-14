@@ -27,6 +27,8 @@ describe('VaccinationsService', () => {
     vaccineProtocol: { findUnique: jest.fn() },
     vaccination: { findUnique: jest.fn() },
     clinicPetConsent: { findFirst: jest.fn() },
+    tutorPet: { findMany: jest.fn() },
+    vaccinationReminder: { createMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -66,12 +68,15 @@ describe('VaccinationsService', () => {
     mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue({
       id: 'consent-1',
     });
+    mockPrismaService.tutorPet.findMany.mockResolvedValue([]);
     mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
       cb({
         vaccination: {
           create: jest.fn().mockResolvedValue({ id: 'vaccination-1' }),
         },
         prescription: { update: jest.fn() },
+        tutorPet: mockPrismaService.tutorPet,
+        vaccinationReminder: mockPrismaService.vaccinationReminder,
       }),
     );
   });
@@ -139,16 +144,21 @@ describe('VaccinationsService', () => {
       ).rejects.toThrow(ConflictException);
     });
 
-    it('calcula nextDoseAt a partir do próximo protocolo da vacina', async () => {
+    it('calcula nextDoseAt a partir do próximo protocolo da vacina e cria um lembrete por tutor', async () => {
       mockPrismaService.vaccineProtocol.findUnique.mockResolvedValue({
         doseNumber: 2,
         intervalDays: 21,
       });
+      mockPrismaService.tutorPet.findMany.mockResolvedValue([
+        { tutorId: 'tutor-1' },
+      ]);
       const createSpy = jest.fn().mockResolvedValue({ id: 'vaccination-1' });
       mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
         cb({
           vaccination: { create: createSpy },
           prescription: { update: jest.fn() },
+          tutorPet: mockPrismaService.tutorPet,
+          vaccinationReminder: mockPrismaService.vaccinationReminder,
         }),
       );
 
@@ -161,6 +171,18 @@ describe('VaccinationsService', () => {
           }) as unknown,
         }),
       );
+      expect(
+        mockPrismaService.vaccinationReminder.createMany,
+      ).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            petId: 'pet-1',
+            tutorId: 'tutor-1',
+            vaccinationId: 'vaccination-1',
+            remindAt: new Date('2026-01-19T10:00:00.000Z'),
+          }),
+        ],
+      });
     });
 
     it('nextDoseAt é null quando não há próxima dose no protocolo', async () => {
@@ -169,6 +191,8 @@ describe('VaccinationsService', () => {
         cb({
           vaccination: { create: createSpy },
           prescription: { update: jest.fn() },
+          tutorPet: mockPrismaService.tutorPet,
+          vaccinationReminder: mockPrismaService.vaccinationReminder,
         }),
       );
 
@@ -179,6 +203,9 @@ describe('VaccinationsService', () => {
           data: expect.objectContaining({ nextDoseAt: null }) as unknown,
         }),
       );
+      expect(
+        mockPrismaService.vaccinationReminder.createMany,
+      ).not.toHaveBeenCalled();
     });
 
     it('marca a prescrição vinculada como aplicada', async () => {
@@ -196,6 +223,8 @@ describe('VaccinationsService', () => {
             create: jest.fn().mockResolvedValue({ id: 'vaccination-1' }),
           },
           prescription: { update: prescriptionUpdate },
+          tutorPet: mockPrismaService.tutorPet,
+          vaccinationReminder: mockPrismaService.vaccinationReminder,
         }),
       );
 

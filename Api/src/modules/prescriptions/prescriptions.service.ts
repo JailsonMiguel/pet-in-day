@@ -5,10 +5,19 @@ import {
   NotFoundException,
   UnprocessableEntityException,
 } from '@nestjs/common';
-import { PetStatus, PrescriptionStatus, UserRole } from '@prisma/client';
+import {
+  NotificationChannel,
+  PetStatus,
+  Prisma,
+  PrescriptionStatus,
+  UserRole,
+} from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreatePrescriptionDto } from './dto/create-prescription.dto';
 import { UpdatePrescriptionStatusDto } from './dto/update-prescription-status.dto';
+
+// Antecedência do lembrete em relação à data agendada da consulta/próxima dose.
+const REMINDER_LEAD_DAYS = 3;
 
 @Injectable()
 export class PrescriptionsService {
@@ -42,17 +51,30 @@ export class PrescriptionsService {
 
     await this.assertConsentGranted(dto.petId, dto.clinicId);
 
-    return this.prisma.prescription.create({
-      data: {
-        petId: dto.petId,
-        vaccineId: dto.vaccineId,
-        veterinarianId: veterinarian.id,
-        clinicId: dto.clinicId,
-        doseNumber: dto.doseNumber ?? 1,
-        scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
-        notes: dto.notes,
-      },
-      include: { vaccine: true, veterinarian: true, clinic: true },
+    return this.prisma.$transaction(async (tx) => {
+      const prescription = await tx.prescription.create({
+        data: {
+          petId: dto.petId,
+          vaccineId: dto.vaccineId,
+          veterinarianId: veterinarian.id,
+          clinicId: dto.clinicId,
+          doseNumber: dto.doseNumber ?? 1,
+          scheduledAt: dto.scheduledAt ? new Date(dto.scheduledAt) : null,
+          notes: dto.notes,
+        },
+        include: { vaccine: true, veterinarian: true, clinic: true },
+      });
+
+      if (prescription.scheduledAt) {
+        await this.createReminders(tx, {
+          petId: dto.petId,
+          vaccineId: dto.vaccineId,
+          prescriptionId: prescription.id,
+          remindAt: this.addDays(prescription.scheduledAt, -REMINDER_LEAD_DAYS),
+        });
+      }
+
+      return prescription;
     });
   }
 
@@ -167,5 +189,42 @@ export class PrescriptionsService {
     }
 
     await this.assertActiveClinicLink(veterinarian.id, clinicId);
+  }
+
+  /** Cria um lembrete para cada tutor vinculado ao pet (sem envio real — só o registro). */
+  private async createReminders(
+    tx: Prisma.TransactionClient,
+    params: {
+      petId: string;
+      vaccineId: string;
+      remindAt: Date;
+      prescriptionId?: string;
+    },
+  ): Promise<void> {
+    const tutorLinks = await tx.tutorPet.findMany({
+      where: { petId: params.petId },
+      select: { tutorId: true },
+    });
+
+    if (tutorLinks.length === 0) {
+      return;
+    }
+
+    await tx.vaccinationReminder.createMany({
+      data: tutorLinks.map((link) => ({
+        petId: params.petId,
+        tutorId: link.tutorId,
+        vaccineId: params.vaccineId,
+        prescriptionId: params.prescriptionId,
+        remindAt: params.remindAt,
+        channel: NotificationChannel.push,
+      })),
+    });
+  }
+
+  private addDays(date: Date, days: number): Date {
+    const result = new Date(date);
+    result.setDate(result.getDate() + days);
+    return result;
   }
 }

@@ -12,17 +12,22 @@ import { PrescriptionsService } from './prescriptions.service';
 describe('PrescriptionsService', () => {
   let service: PrescriptionsService;
 
+  type TxCallback = (tx: unknown) => unknown;
+
   const mockPrismaService = {
     veterinarian: { findUnique: jest.fn() },
     clinicVeterinarian: { findUnique: jest.fn() },
     pet: { findFirst: jest.fn() },
     vaccine: { findUnique: jest.fn() },
     clinicPetConsent: { findFirst: jest.fn() },
+    tutorPet: { findMany: jest.fn() },
+    vaccinationReminder: { createMany: jest.fn() },
     prescription: {
       create: jest.fn(),
       findUnique: jest.fn(),
       update: jest.fn(),
     },
+    $transaction: jest.fn(),
   };
 
   beforeEach(async () => {
@@ -35,6 +40,15 @@ describe('PrescriptionsService', () => {
 
     service = module.get<PrescriptionsService>(PrescriptionsService);
     jest.clearAllMocks();
+
+    mockPrismaService.tutorPet.findMany.mockResolvedValue([]);
+    mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
+      cb({
+        prescription: mockPrismaService.prescription,
+        tutorPet: mockPrismaService.tutorPet,
+        vaccinationReminder: mockPrismaService.vaccinationReminder,
+      }),
+    );
   });
 
   describe('create', () => {
@@ -172,6 +186,59 @@ describe('PrescriptionsService', () => {
           }) as unknown,
         }),
       );
+      expect(
+        mockPrismaService.vaccinationReminder.createMany,
+      ).not.toHaveBeenCalled();
+    });
+
+    it('cria um lembrete por tutor vinculado quando há scheduledAt', async () => {
+      mockPrismaService.veterinarian.findUnique.mockResolvedValue({
+        id: 'vet-1',
+      });
+      mockPrismaService.clinicVeterinarian.findUnique.mockResolvedValue({
+        isActive: true,
+      });
+      mockPrismaService.pet.findFirst.mockResolvedValue({
+        id: 'pet-1',
+        status: PetStatus.active,
+      });
+      mockPrismaService.vaccine.findUnique.mockResolvedValue({
+        id: 'vaccine-1',
+        isActive: true,
+      });
+      mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue({
+        id: 'consent-1',
+      });
+      mockPrismaService.prescription.create.mockResolvedValue({
+        id: 'prescription-1',
+        petId: 'pet-1',
+        scheduledAt: new Date('2026-02-10T00:00:00.000Z'),
+      });
+      mockPrismaService.tutorPet.findMany.mockResolvedValue([
+        { tutorId: 'tutor-1' },
+        { tutorId: 'tutor-2' },
+      ]);
+
+      await service.create('user-1', { ...dto, scheduledAt: '2026-02-10' });
+
+      expect(
+        mockPrismaService.vaccinationReminder.createMany,
+      ).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            petId: 'pet-1',
+            tutorId: 'tutor-1',
+            prescriptionId: 'prescription-1',
+            remindAt: new Date('2026-02-07T00:00:00.000Z'),
+          }),
+          expect.objectContaining({
+            petId: 'pet-1',
+            tutorId: 'tutor-2',
+            prescriptionId: 'prescription-1',
+            remindAt: new Date('2026-02-07T00:00:00.000Z'),
+          }),
+        ],
+      });
     });
   });
 

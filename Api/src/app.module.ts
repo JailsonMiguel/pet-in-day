@@ -19,6 +19,7 @@ import { ClinicsModule } from './modules/clinics/clinics.module';
 import { ConsentsModule } from './modules/consents/consents.module';
 import { PetsModule } from './modules/pets/pets.module';
 import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
+import { RemindersModule } from './modules/reminders/reminders.module';
 import { VaccinationsModule } from './modules/vaccinations/vaccinations.module';
 import { VaccinesModule } from './modules/vaccines/vaccines.module';
 import { VeterinariansModule } from './modules/veterinarians/veterinarians.module';
@@ -52,6 +53,7 @@ import { VeterinariansModule } from './modules/veterinarians/veterinarians.modul
     VeterinariansModule,
     PrescriptionsModule,
     VaccinationsModule,
+    RemindersModule,
   ],
   controllers: [AppController],
   providers: [

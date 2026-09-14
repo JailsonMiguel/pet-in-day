@@ -74,8 +74,7 @@ Adicionado ao `PetsController`/`PetsService` (reaproveita a mesma autorização 
 - `summary`: `totalApplied` (vacinações), `totalPending`/`totalOverdue` (prescrições `pending`/`scheduled`, com/sem `scheduledAt` vencido) e um `status` derivado (`overdue` > `pending` > `up_to_date` > `unknown`).
 - `entries`: vacinações aplicadas + prescrições em aberto (prescrições `cancelled`/`no_show`/`applied` não aparecem — a aplicada já virou uma entrada de vacinação), ordenadas por data mais recente primeiro.
 
-Ainda não implementado: `GET /v1/pets/:id/wallet/export` (PDF), lembretes
-(`vaccination_reminders`), notificações.
+Ainda não implementado: `GET /v1/pets/:id/wallet/export` (PDF), notificações.
 
 ### 9. Consentimento LGPD — `Clinics` ↔ `Pets` (`/v1/pets/:petId/consents`)
 
@@ -91,6 +90,20 @@ Autorização por recurso no service, no mesmo padrão do `PetsService`
 
 Não implementado: notificação da clínica quando um consentimento é concedido
 ou revogado.
+
+### 10. Lembretes de vacinação — `GET /v1/pets/:petId/reminders`
+
+Popula `vaccination_reminders` automaticamente como efeito colateral de
+`Prescriptions`/`Vaccinations` — não é uma rota de escrita própria. **Não
+inclui envio real** (push/e-mail/sms): só o agendamento do registro, com
+`channel: push` e `status: pending` fixos por enquanto.
+
+- `POST /v1/prescriptions` com `scheduledAt`: cria um lembrete (`remindAt = scheduledAt - 3 dias`) para cada tutor vinculado ao pet, referenciando a prescrição.
+- `POST /v1/vaccinations` quando há próxima dose (`nextDoseAt` calculado): cria um lembrete (`remindAt = nextDoseAt - 3 dias`) para cada tutor vinculado ao pet, referenciando a vacinação.
+- `GET /v1/pets/:petId/reminders`: Lista os lembretes do pet ordenados por `remindAt`. Mesma regra de acesso de `GET /v1/pets/:id` (tutor vinculado ou `platform_admin`).
+
+Não implementado: envio efetivo (worker/cron consumindo `status: pending`),
+preferência de canal por usuário, marcar como `sent`/`read`.
 
 ---
 
@@ -225,10 +238,12 @@ token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
 `RolesGuard`, `PetsService` (criação, paginação/filtros, regra de tutor
 principal em `update`/`remove`, agregação da carteira de vacinação),
 `VaccinesService`, `ClinicsService` (autorização por admin da clínica, vínculo
-de veterinário), `VeterinariansService`, `PrescriptionsService`,
-`VaccinationsService` (cálculo de `nextDoseAt`, retificação auditada,
-verificação pública, bloqueio sem consentimento do tutor), `ConsentsService`
-(concessão/revogação, autorização por vínculo com o pet) e
+de veterinário), `VeterinariansService` (registro, perfil, prescrições
+pendentes), `PrescriptionsService` (criação de lembrete quando há
+`scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
+auditada, verificação pública, bloqueio sem consentimento do tutor, criação
+de lembrete para a próxima dose), `ConsentsService` (concessão/revogação,
+autorização por vínculo com o pet), `RemindersService` (listagem por pet) e
 `GlobalExceptionFilter`.
 
 ### Observabilidade e Auditoria
