@@ -16,10 +16,14 @@ import {
   PrescriptionStatus,
   UserRole,
 } from '@prisma/client';
+import { WalletPdfService } from './wallet-pdf.service';
 
 @Injectable()
 export class PetsService {
-  constructor(private readonly prisma: PrismaService) {}
+  constructor(
+    private readonly prisma: PrismaService,
+    private readonly walletPdfService: WalletPdfService,
+  ) {}
 
   async create(userId: string, dto: CreatePetDto) {
     const tutor = await this.prisma.tutor.findUnique({
@@ -244,6 +248,17 @@ export class PetsService {
         totalOverdue: overduePrescriptions.length,
       },
       entries,
+    };
+  }
+
+  /** Mesma carteira de `getWallet`, renderizada como PDF para download. */
+  async getWalletPdf(userId: string, userRole: string, petId: string) {
+    const wallet = await this.getWallet(userId, userRole, petId);
+    const buffer = await this.walletPdfService.generate(wallet);
+
+    return {
+      buffer,
+      filename: `carteira-vacinacao-${wallet.pet.publicCode}.pdf`,
     };
   }
 

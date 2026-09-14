@@ -7,9 +7,11 @@ import {
   Param,
   Delete,
   Query,
+  Res,
   HttpCode,
   HttpStatus,
 } from '@nestjs/common';
+import type { Response } from 'express';
 import { PetsService } from './pets.service';
 import { CreatePetDto } from './dto/create-pet.dto';
 import { ListPetsQueryDto } from './dto/list-pets-query.dto';
@@ -56,6 +58,24 @@ export class PetsController {
   ) {
     const data = await this.petsService.getWallet(user.id, user.role, id);
     return { data };
+  }
+
+  @Get(':id/wallet/export')
+  async exportWallet(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Res({ passthrough: true }) res: Response,
+  ): Promise<Buffer> {
+    const { buffer, filename } = await this.petsService.getWalletPdf(
+      user.id,
+      user.role,
+      id,
+    );
+    res.set({
+      'Content-Type': 'application/pdf',
+      'Content-Disposition': `attachment; filename="${filename}"`,
+    });
+    return buffer;
   }
 
   @Patch(':id')

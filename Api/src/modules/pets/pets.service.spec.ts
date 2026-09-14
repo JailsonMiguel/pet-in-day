@@ -14,6 +14,7 @@ import {
   ForbiddenException,
 } from '@nestjs/common';
 import { ListPetsQueryDto } from './dto/list-pets-query.dto';
+import { WalletPdfService } from './wallet-pdf.service';
 
 type TxCallback = (tx: unknown) => unknown;
 
@@ -51,6 +52,10 @@ describe('PetsService', () => {
     $transaction: jest.fn(),
   };
 
+  const mockWalletPdfService = {
+    generate: jest.fn(),
+  };
+
   beforeEach(async () => {
     const module: TestingModule = await Test.createTestingModule({
       providers: [
@@ -58,6 +63,10 @@ describe('PetsService', () => {
         {
           provide: PrismaService,
           useValue: mockPrismaService,
+        },
+        {
+          provide: WalletPdfService,
+          useValue: mockWalletPdfService,
         },
       ],
     }).compile();
@@ -351,6 +360,53 @@ describe('PetsService', () => {
       await expect(
         service.getWallet('user-id-1', UserRole.tutor, 'pet-id-1'),
       ).rejects.toThrow(NotFoundException);
+    });
+  });
+
+  describe('getWalletPdf', () => {
+    beforeEach(() => {
+      mockPrismaService.pet.findFirst.mockResolvedValue({
+        id: 'pet-id-1',
+        publicCode: 'PET-A1B2C3',
+        name: 'Thor',
+        species: PetSpecies.dog,
+        breed: 'SRD',
+        birthDate: null,
+        photoUrl: null,
+        deletedAt: null,
+      });
+      mockPrismaService.prescription.findMany.mockResolvedValue([]);
+      mockPrismaService.vaccination.findMany.mockResolvedValue([]);
+    });
+
+    it('delega a renderização ao WalletPdfService e nomeia o arquivo pelo publicCode', async () => {
+      const pdfBuffer = Buffer.from('%PDF-1.4');
+      mockWalletPdfService.generate.mockResolvedValue(pdfBuffer);
+
+      const result = await service.getWalletPdf(
+        'user-id-1',
+        UserRole.platform_admin,
+        'pet-id-1',
+      );
+
+      expect(mockWalletPdfService.generate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          pet: expect.objectContaining({ publicCode: 'PET-A1B2C3' }) as unknown,
+        }),
+      );
+      expect(result).toEqual({
+        buffer: pdfBuffer,
+        filename: 'carteira-vacinacao-PET-A1B2C3.pdf',
+      });
+    });
+
+    it('propaga a autorização de getWallet (404 se o pet não existir)', async () => {
+      mockPrismaService.pet.findFirst.mockResolvedValue(null);
+
+      await expect(
+        service.getWalletPdf('user-id-1', UserRole.tutor, 'pet-id-1'),
+      ).rejects.toThrow(NotFoundException);
+      expect(mockWalletPdfService.generate).not.toHaveBeenCalled();
     });
   });
 

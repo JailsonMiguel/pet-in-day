@@ -73,8 +73,9 @@ Adicionado ao `PetsController`/`PetsService` (reaproveita a mesma autorização 
 
 - `summary`: `totalApplied` (vacinações), `totalPending`/`totalOverdue` (prescrições `pending`/`scheduled`, com/sem `scheduledAt` vencido) e um `status` derivado (`overdue` > `pending` > `up_to_date` > `unknown`).
 - `entries`: vacinações aplicadas + prescrições em aberto (prescrições `cancelled`/`no_show`/`applied` não aparecem — a aplicada já virou uma entrada de vacinação), ordenadas por data mais recente primeiro.
+- `GET /v1/pets/:id/wallet/export`: Mesmos dados renderizados como PDF (via [`pdfkit`](https://pdfkit.org/)) e retornados para download (`Content-Type: application/pdf`, `Content-Disposition: attachment`). Mesma autorização de `GET /v1/pets/:id/wallet`. A renderização vive em `WalletPdfService`, separada do `PetsService` para não misturar acesso a dados com layout do documento.
 
-Ainda não implementado: `GET /v1/pets/:id/wallet/export` (PDF), notificações.
+Ainda não implementado: notificações.
 
 ### 9. Consentimento LGPD — `Clinics` ↔ `Pets` (`/v1/pets/:petId/consents`)
 
@@ -113,6 +114,7 @@ preferência de canal por usuário, marcar como `sent`/`read`.
 - **Prisma ORM** (PostgreSQL)
 - **Passport JWT** & `@nestjs/jwt`
 - **class-validator** & `@nestjs/mapped-types`
+- **pdfkit** (geração do PDF da carteira de vacinação)
 - **Jest** (Testes unitários)
 
 ---
@@ -236,8 +238,9 @@ $ npm run test
 Cobertura atual de testes unitários: `AuthService` (login, rotação de refresh
 token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
 `RolesGuard`, `PetsService` (criação, paginação/filtros, regra de tutor
-principal em `update`/`remove`, agregação da carteira de vacinação),
-`VaccinesService`, `ClinicsService` (autorização por admin da clínica, vínculo
+principal em `update`/`remove`, agregação da carteira de vacinação,
+delegação do export em PDF), `WalletPdfService`, `VaccinesService`,
+`ClinicsService` (autorização por admin da clínica, vínculo
 de veterinário), `VeterinariansService` (registro, perfil, prescrições
 pendentes), `PrescriptionsService` (criação de lembrete quando há
 `scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
