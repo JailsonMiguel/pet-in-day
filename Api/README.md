@@ -89,8 +89,8 @@ Autorização por recurso no service, no mesmo padrão do `PetsService`
 - `GET /v1/pets/:petId/consents`: Lista o histórico de consentimentos (concedidos e revogados) do pet. Mesma regra de acesso de `GET /v1/pets/:id` (tutor vinculado ou `platform_admin`).
 - `DELETE /v1/pets/:petId/consents/:clinicId` (`@Roles(tutor)`): Revoga o consentimento ativo daquela clínica (`revokedAt`). `404` se não houver consentimento ativo para revogar.
 
-Não implementado: notificação da clínica quando um consentimento é concedido
-ou revogado.
+Conceder ou revogar notifica (in-app, via `Notifications`) todos os admins
+ativos (`ClinicUser.role = admin`) da clínica.
 
 ### 10. Lembretes de vacinação — `GET /v1/pets/:petId/reminders`
 
@@ -105,6 +105,20 @@ inclui envio real** (push/e-mail/sms): só o agendamento do registro, com
 
 Não implementado: envio efetivo (worker/cron consumindo `status: pending`),
 preferência de canal por usuário, marcar como `sent`/`read`.
+
+### 11. Notificações in-app — `/v1/notifications`
+
+CRUD básico sobre `Notification`, sempre escopado ao usuário autenticado —
+não há leitura/edição de notificação alheia. **Não inclui envio real**
+(push/e-mail/sms): as notificações já nascem no banco (hoje, criadas por
+`ConsentsService` ao conceder/revogar) e o app as consome por aqui.
+
+- `GET /v1/notifications`: Lista as notificações do usuário, mais recentes primeiro (paginado). Filtro opcional `?unreadOnly=true` (usa `status != read`; o `status` de `NotificationChannel` acumula "entrega" e "lida" no mesmo campo, já que não há envio real).
+- `PATCH /v1/notifications/:id/read`: Marca uma notificação como lida (`status: read`, `readAt`). Idempotente. `404` também quando a notificação existe mas é de outro usuário — evita vazar sua existência.
+- `PATCH /v1/notifications/read-all`: Marca todas as não lidas do usuário como lidas de uma vez; retorna `{ updated: number }`.
+
+Não implementado: criação de notificação a partir de outros eventos (vacinação
+aplicada, prescrição agendada), preferência de canal por usuário.
 
 ---
 
@@ -246,8 +260,10 @@ pendentes), `PrescriptionsService` (criação de lembrete quando há
 `scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
 auditada, verificação pública, bloqueio sem consentimento do tutor, criação
 de lembrete para a próxima dose), `ConsentsService` (concessão/revogação,
-autorização por vínculo com o pet), `RemindersService` (listagem por pet) e
-`GlobalExceptionFilter`.
+autorização por vínculo com o pet, notificação dos admins da clínica),
+`RemindersService` (listagem por pet), `NotificationsService`
+(listagem/filtro por não lidas, marcar uma ou todas como lidas, isolamento
+por usuário) e `GlobalExceptionFilter`.
 
 ### Observabilidade e Auditoria
 

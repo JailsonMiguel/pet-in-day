@@ -250,7 +250,8 @@ describe('PetsService', () => {
         {
           id: 'presc-1',
           status: PrescriptionStatus.pending,
-          scheduledAt: new Date('2026-09-15'),
+          // Sempre no futuro em relação ao momento do teste — não pode virar "overdue" com o tempo.
+          scheduledAt: new Date(Date.now() + 30 * 24 * 60 * 60 * 1000),
           prescribedAt: new Date('2026-07-27'),
           doseNumber: 2,
           vaccine: { id: 'vaccine-2', name: 'Antirrábica' },

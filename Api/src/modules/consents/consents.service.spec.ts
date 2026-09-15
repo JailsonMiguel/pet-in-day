@@ -16,6 +16,8 @@ describe('ConsentsService', () => {
     clinic: { findFirst: jest.fn() },
     tutor: { findUnique: jest.fn() },
     tutorPet: { findUnique: jest.fn() },
+    clinicUser: { findMany: jest.fn() },
+    notification: { createMany: jest.fn() },
     clinicPetConsent: {
       findFirst: jest.fn(),
       findMany: jest.fn(),
@@ -35,12 +37,16 @@ describe('ConsentsService', () => {
     service = module.get<ConsentsService>(ConsentsService);
     jest.clearAllMocks();
 
-    mockPrismaService.pet.findFirst.mockResolvedValue({ id: 'pet-1' });
+    mockPrismaService.pet.findFirst.mockResolvedValue({
+      id: 'pet-1',
+      name: 'Thor',
+    });
     mockPrismaService.tutor.findUnique.mockResolvedValue({ id: 'tutor-1' });
     mockPrismaService.tutorPet.findUnique.mockResolvedValue({
       tutorId: 'tutor-1',
       petId: 'pet-1',
     });
+    mockPrismaService.clinicUser.findMany.mockResolvedValue([]);
   });
 
   describe('grant', () => {
@@ -96,6 +102,30 @@ describe('ConsentsService', () => {
           data: { clinicId: 'clinic-1', petId: 'pet-1', tutorId: 'tutor-1' },
         }) as unknown,
       );
+      // Sem admins ativos na clínica, nenhuma notificação é criada.
+      expect(mockPrismaService.notification.createMany).not.toHaveBeenCalled();
+    });
+
+    it('notifica os admins ativos da clínica ao conceder', async () => {
+      mockPrismaService.clinic.findFirst.mockResolvedValue({ id: 'clinic-1' });
+      mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue(null);
+      mockPrismaService.clinicPetConsent.create.mockResolvedValue({
+        id: 'consent-1',
+      });
+      mockPrismaService.clinicUser.findMany.mockResolvedValue([
+        { userId: 'admin-user-1' },
+      ]);
+
+      await service.grant('user-1', 'pet-1', dto);
+
+      expect(mockPrismaService.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            userId: 'admin-user-1',
+            referenceId: 'consent-1',
+          }),
+        ],
+      });
     });
   });
 
@@ -145,6 +175,35 @@ describe('ConsentsService', () => {
       expect(mockPrismaService.clinicPetConsent.update).toHaveBeenCalledWith(
         expect.objectContaining({ where: { id: 'consent-1' } }) as unknown,
       );
+    });
+
+    it('notifica os admins ativos da clínica ao revogar', async () => {
+      mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue({
+        id: 'consent-1',
+      });
+      mockPrismaService.clinicPetConsent.update.mockResolvedValue({
+        id: 'consent-1',
+        revokedAt: new Date('2026-01-01T00:00:00.000Z'),
+      });
+      mockPrismaService.clinicUser.findMany.mockResolvedValue([
+        { userId: 'admin-user-1' },
+        { userId: 'admin-user-2' },
+      ]);
+
+      await service.revoke('user-1', 'pet-1', 'clinic-1');
+
+      expect(mockPrismaService.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            userId: 'admin-user-1',
+            referenceId: 'consent-1',
+          }),
+          expect.objectContaining({
+            userId: 'admin-user-2',
+            referenceId: 'consent-1',
+          }),
+        ],
+      });
     });
   });
 });

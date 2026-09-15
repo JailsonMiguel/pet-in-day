@@ -17,6 +17,7 @@ import { LoggerModule } from './core/logging/logger.module';
 import { AuthModule } from './modules/auth/auth.module';
 import { ClinicsModule } from './modules/clinics/clinics.module';
 import { ConsentsModule } from './modules/consents/consents.module';
+import { NotificationsModule } from './modules/notifications/notifications.module';
 import { PetsModule } from './modules/pets/pets.module';
 import { PrescriptionsModule } from './modules/prescriptions/prescriptions.module';
 import { RemindersModule } from './modules/reminders/reminders.module';
@@ -50,6 +51,7 @@ import { VeterinariansModule } from './modules/veterinarians/veterinarians.modul
     VaccinesModule,
     ClinicsModule,
     ConsentsModule,
+    NotificationsModule,
     VeterinariansModule,
     PrescriptionsModule,
     VaccinationsModule,

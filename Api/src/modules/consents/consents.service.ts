@@ -4,7 +4,7 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { UserRole } from '@prisma/client';
+import { ClinicUserRole, NotificationChannel, UserRole } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateConsentDto } from './dto/create-consent.dto';
 
@@ -14,7 +14,7 @@ export class ConsentsService {
 
   /** Tutor autoriza uma clínica a acessar/tratar este pet (consentimento LGPD). */
   async grant(userId: string, petId: string, dto: CreateConsentDto) {
-    await this.getActivePetOrThrow(petId);
+    const pet = await this.getActivePetOrThrow(petId);
     const tutor = await this.assertLinkedTutorOrThrow(userId, petId);
 
     const clinic = await this.prisma.clinic.findFirst({
@@ -31,7 +31,7 @@ export class ConsentsService {
       throw new ConflictException('Consentimento já concedido a esta clínica');
     }
 
-    return this.prisma.clinicPetConsent.create({
+    const consent = await this.prisma.clinicPetConsent.create({
       data: {
         clinicId: dto.clinicId,
         petId,
@@ -39,6 +39,14 @@ export class ConsentsService {
       },
       include: { clinic: true },
     });
+
+    await this.notifyClinicAdmins(dto.clinicId, {
+      title: 'Novo consentimento de tutor',
+      body: `O tutor autorizou sua clínica a atender o pet ${pet.name}.`,
+      referenceId: consent.id,
+    });
+
+    return consent;
   }
 
   async findAllForPet(userId: string, userRole: string, petId: string) {
@@ -56,7 +64,7 @@ export class ConsentsService {
   }
 
   async revoke(userId: string, petId: string, clinicId: string) {
-    await this.getActivePetOrThrow(petId);
+    const pet = await this.getActivePetOrThrow(petId);
     await this.assertLinkedTutorOrThrow(userId, petId);
 
     const consent = await this.prisma.clinicPetConsent.findFirst({
@@ -68,10 +76,18 @@ export class ConsentsService {
       );
     }
 
-    return this.prisma.clinicPetConsent.update({
+    const updated = await this.prisma.clinicPetConsent.update({
       where: { id: consent.id },
       data: { revokedAt: new Date() },
     });
+
+    await this.notifyClinicAdmins(clinicId, {
+      title: 'Consentimento revogado',
+      body: `O tutor revogou a autorização da sua clínica para atender o pet ${pet.name}.`,
+      referenceId: updated.id,
+    });
+
+    return updated;
   }
 
   private async getActivePetOrThrow(petId: string) {
@@ -101,5 +117,32 @@ export class ConsentsService {
     }
 
     return tutor;
+  }
+
+  /** Notifica (in-app) os admins ativos da clínica — sem envio real por push/e-mail/sms. */
+  private async notifyClinicAdmins(
+    clinicId: string,
+    params: { title: string; body: string; referenceId: string },
+  ): Promise<void> {
+    const admins = await this.prisma.clinicUser.findMany({
+      where: { clinicId, role: ClinicUserRole.admin, isActive: true },
+      select: { userId: true },
+    });
+
+    if (admins.length === 0) {
+      return;
+    }
+
+    await this.prisma.notification.createMany({
+      data: admins.map((admin) => ({
+        userId: admin.userId,
+        title: params.title,
+        body: params.body,
+        type: 'clinic_pet_consent',
+        referenceType: 'clinic_pet_consent',
+        referenceId: params.referenceId,
+        channel: NotificationChannel.push,
+      })),
+    });
   }
 }
