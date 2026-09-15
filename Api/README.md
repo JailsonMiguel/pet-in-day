@@ -75,8 +75,6 @@ Adicionado ao `PetsController`/`PetsService` (reaproveita a mesma autorização 
 - `entries`: vacinações aplicadas + prescrições em aberto (prescrições `cancelled`/`no_show`/`applied` não aparecem — a aplicada já virou uma entrada de vacinação), ordenadas por data mais recente primeiro.
 - `GET /v1/pets/:id/wallet/export`: Mesmos dados renderizados como PDF (via [`pdfkit`](https://pdfkit.org/)) e retornados para download (`Content-Type: application/pdf`, `Content-Disposition: attachment`). Mesma autorização de `GET /v1/pets/:id/wallet`. A renderização vive em `WalletPdfService`, separada do `PetsService` para não misturar acesso a dados com layout do documento.
 
-Ainda não implementado: notificações.
-
 ### 9. Consentimento LGPD — `Clinics` ↔ `Pets` (`/v1/pets/:petId/consents`)
 
 Um veterinário só pode prescrever (`POST /v1/prescriptions`) ou aplicar
