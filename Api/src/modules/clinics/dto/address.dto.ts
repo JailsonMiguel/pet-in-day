@@ -1,4 +1,11 @@
-import { IsOptional, IsString, Length, MaxLength } from 'class-validator';
+import {
+  IsLatitude,
+  IsLongitude,
+  IsOptional,
+  IsString,
+  Length,
+  MaxLength,
+} from 'class-validator';
 
 export class AddressDto {
   @IsString()
@@ -29,4 +36,13 @@ export class AddressDto {
   /** Aceita qualquer formatação; o serviço remove os não-dígitos e exige 8. */
   @IsString()
   zipCode: string;
+
+  /** Habilita `GET /v1/clinics/search`; sem isso a clínica não aparece na busca geográfica. */
+  @IsOptional()
+  @IsLatitude()
+  latitude?: number;
+
+  @IsOptional()
+  @IsLongitude()
+  longitude?: number;
 }

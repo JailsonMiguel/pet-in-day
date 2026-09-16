@@ -20,6 +20,9 @@ const validAddress = {
   zipCode: '01001-000',
 };
 
+/** Simula `Prisma.Decimal` o suficiente para exercitar `search()` (só usa `.toNumber()`). */
+const decimal = (value: number) => ({ toNumber: () => value });
+
 describe('ClinicsService', () => {
   let service: ClinicsService;
 
@@ -27,6 +30,7 @@ describe('ClinicsService', () => {
     clinic: {
       findUnique: jest.fn(),
       findFirst: jest.fn(),
+      findMany: jest.fn(),
       update: jest.fn(),
     },
     clinicUser: {
@@ -263,6 +267,96 @@ describe('ClinicsService', () => {
       expect(result).toEqual({ id: 'link-1' });
       expect(mockPrismaService.veterinarian.findUnique).toHaveBeenCalledWith({
         where: { crmv: 'SP-12345' },
+      });
+    });
+  });
+
+  describe('search', () => {
+    // Ponto de referência: Praça da Sé, São Paulo.
+    const referencePoint = { lat: -23.5505, lng: -46.6333 };
+
+    const clinicNear = {
+      id: 'clinic-near',
+      latitude: decimal(-23.5505),
+      longitude: decimal(-46.6333),
+    };
+    const clinicMid = {
+      id: 'clinic-mid',
+      latitude: decimal(-23.56),
+      longitude: decimal(-46.64),
+    };
+    // Rio de Janeiro — a ~360km de distância, fora de qualquer raio razoável.
+    const clinicFar = {
+      id: 'clinic-far',
+      latitude: decimal(-22.9068),
+      longitude: decimal(-43.1729),
+    };
+
+    it('retorna apenas clínicas dentro do raio, ordenadas por distância', async () => {
+      mockPrismaService.clinic.findMany.mockResolvedValue([
+        clinicFar,
+        clinicMid,
+        clinicNear,
+      ]);
+
+      const result = await service.search({
+        ...referencePoint,
+        radiusKm: 10,
+        page: 1,
+        limit: 20,
+      });
+
+      expect(result.data.map((c) => c.id)).toEqual([
+        'clinic-near',
+        'clinic-mid',
+      ]);
+      expect(result.meta).toEqual({
+        page: 1,
+        limit: 20,
+        total: 2,
+        totalPages: 1,
+      });
+    });
+
+    it('pagina o resultado já filtrado/ordenado', async () => {
+      mockPrismaService.clinic.findMany.mockResolvedValue([
+        clinicNear,
+        clinicMid,
+      ]);
+
+      const result = await service.search({
+        ...referencePoint,
+        radiusKm: 10,
+        page: 2,
+        limit: 1,
+      });
+
+      expect(result.data.map((c) => c.id)).toEqual(['clinic-mid']);
+      expect(result.meta).toEqual({
+        page: 2,
+        limit: 1,
+        total: 2,
+        totalPages: 2,
+      });
+    });
+
+    it('só busca clínicas ativas, não deletadas e com coordenadas', async () => {
+      mockPrismaService.clinic.findMany.mockResolvedValue([]);
+
+      await service.search({
+        ...referencePoint,
+        radiusKm: 10,
+        page: 1,
+        limit: 20,
+      });
+
+      expect(mockPrismaService.clinic.findMany).toHaveBeenCalledWith({
+        where: {
+          deletedAt: null,
+          isActive: true,
+          latitude: { not: null },
+          longitude: { not: null },
+        },
       });
     });
   });

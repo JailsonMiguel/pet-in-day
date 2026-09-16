@@ -36,13 +36,14 @@ automaticamente seu administrador (`ClinicUser.role = admin`). Autorização de
 recurso (quem pode editar/vincular) é resolvida no service, no mesmo padrão do
 `PetsService` (não depende de `@Roles`, e sim de vínculo com o recurso).
 
-- `POST /v1/clinics`: Cadastra a clínica (`cnpj`, `legalName`, `tradeName?`, `email`, `phone?`, `address`). CNPJ único; aceita qualquer formatação (dígitos são extraídos).
+- `POST /v1/clinics`: Cadastra a clínica (`cnpj`, `legalName`, `tradeName?`, `email`, `phone?`, `address`). CNPJ único; aceita qualquer formatação (dígitos são extraídos). `address.latitude`/`address.longitude` são opcionais — sem eles a clínica não aparece em `GET /v1/clinics/search`.
 - `GET /v1/clinics/:id`: Detalhe da clínica.
 - `PATCH /v1/clinics/:id`: **Apenas o admin da clínica** (ou `platform_admin`). `cnpj` não é editável.
 - `POST /v1/clinics/:id/veterinarians`: Vincula um veterinário já registrado à clínica, buscando por `crmv`. **Apenas o admin da clínica** (ou `platform_admin`). `404` se o CRMV não existir, `409` se o vínculo já existir.
+- `GET /v1/clinics/search?lat=&lng=&radiusKm=&page=&limit=`: Busca clínicas ativas dentro de um raio (`radiusKm`, padrão 10, até 500) a partir de um ponto (`lat`/`lng`), ordenadas por distância. Calculada em memória com a fórmula de Haversine (distância em linha reta) sobre as clínicas com coordenadas cadastradas — sem PostGIS; reavaliar se o volume de clínicas crescer muito. Clínicas sem `latitude`/`longitude` nunca aparecem no resultado.
 
-Não implementado: convite por e-mail/token (`/clinics/{id}/invites/*`), busca
-geográfica (`/clinics/search`), cadastro de recepção/staff.
+Não implementado: convite por e-mail/token (`/clinics/{id}/invites/*`),
+cadastro de recepção/staff.
 
 ### 5. `Veterinarians` (`/v1/veterinarians`)
 
@@ -253,7 +254,7 @@ token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
 principal em `update`/`remove`, agregação da carteira de vacinação,
 delegação do export em PDF), `WalletPdfService`, `VaccinesService`,
 `ClinicsService` (autorização por admin da clínica, vínculo
-de veterinário), `VeterinariansService` (registro, perfil, prescrições
+de veterinário, busca geográfica por raio), `VeterinariansService` (registro, perfil, prescrições
 pendentes), `PrescriptionsService` (criação de lembrete quando há
 `scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
 auditada, verificação pública, bloqueio sem consentimento do tutor, criação

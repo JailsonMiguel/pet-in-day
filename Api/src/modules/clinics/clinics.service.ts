@@ -9,7 +9,10 @@ import { ClinicUserRole, UserRole } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { LinkVeterinarianDto } from './dto/link-veterinarian.dto';
+import { SearchClinicsQueryDto } from './dto/search-clinics-query.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
+
+const EARTH_RADIUS_KM = 6371;
 
 @Injectable()
 export class ClinicsService {
@@ -48,6 +51,8 @@ export class ClinicsService {
           city: dto.address.city,
           state: dto.address.state.toUpperCase(),
           zipCode: cleanZipCode,
+          latitude: dto.address.latitude,
+          longitude: dto.address.longitude,
         },
       });
 
@@ -107,8 +112,47 @@ export class ClinicsService {
         ...(address?.zipCode && {
           zipCode: address.zipCode.replace(/\D/g, ''),
         }),
+        ...(address?.latitude !== undefined && {
+          latitude: address.latitude,
+        }),
+        ...(address?.longitude !== undefined && {
+          longitude: address.longitude,
+        }),
       },
     });
+  }
+
+  /** Busca clínicas ativas próximas a um ponto (distância em linha reta, fórmula de Haversine). */
+  async search(query: SearchClinicsQueryDto) {
+    const { lat, lng, radiusKm, page, limit } = query;
+
+    const clinics = await this.prisma.clinic.findMany({
+      where: {
+        deletedAt: null,
+        isActive: true,
+        latitude: { not: null },
+        longitude: { not: null },
+      },
+    });
+
+    const withinRadius = clinics
+      .map((clinic) => ({
+        ...clinic,
+        distanceKm: this.haversineDistanceKm(
+          lat,
+          lng,
+          clinic.latitude!.toNumber(),
+          clinic.longitude!.toNumber(),
+        ),
+      }))
+      .filter((clinic) => clinic.distanceKm <= radiusKm)
+      .sort((a, b) => a.distanceKm - b.distanceKm);
+
+    const total = withinRadius.length;
+    const start = (page - 1) * limit;
+    const data = withinRadius.slice(start, start + limit);
+
+    return { data, meta: this.buildMeta(page, limit, total) };
   }
 
   async linkVeterinarian(
@@ -177,5 +221,29 @@ export class ClinicsService {
         'Apenas administradores da clínica podem realizar esta ação',
       );
     }
+  }
+
+  private haversineDistanceKm(
+    lat1: number,
+    lng1: number,
+    lat2: number,
+    lng2: number,
+  ): number {
+    const toRad = (deg: number) => (deg * Math.PI) / 180;
+    const dLat = toRad(lat2 - lat1);
+    const dLng = toRad(lng2 - lng1);
+    const a =
+      Math.sin(dLat / 2) ** 2 +
+      Math.cos(toRad(lat1)) * Math.cos(toRad(lat2)) * Math.sin(dLng / 2) ** 2;
+    return EARTH_RADIUS_KM * 2 * Math.atan2(Math.sqrt(a), Math.sqrt(1 - a));
+  }
+
+  private buildMeta(page: number, limit: number, total: number) {
+    return {
+      page,
+      limit,
+      total,
+      totalPages: Math.ceil(total / limit),
+    };
   }
 }
