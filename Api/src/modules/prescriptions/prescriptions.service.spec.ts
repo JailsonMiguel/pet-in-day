@@ -22,6 +22,7 @@ describe('PrescriptionsService', () => {
     clinicPetConsent: { findFirst: jest.fn() },
     tutorPet: { findMany: jest.fn() },
     vaccinationReminder: { createMany: jest.fn() },
+    notification: { createMany: jest.fn() },
     prescription: {
       create: jest.fn(),
       findUnique: jest.fn(),
@@ -47,6 +48,7 @@ describe('PrescriptionsService', () => {
         prescription: mockPrismaService.prescription,
         tutorPet: mockPrismaService.tutorPet,
         vaccinationReminder: mockPrismaService.vaccinationReminder,
+        notification: mockPrismaService.notification,
       }),
     );
   });
@@ -189,9 +191,10 @@ describe('PrescriptionsService', () => {
       expect(
         mockPrismaService.vaccinationReminder.createMany,
       ).not.toHaveBeenCalled();
+      expect(mockPrismaService.notification.createMany).not.toHaveBeenCalled();
     });
 
-    it('cria um lembrete por tutor vinculado quando há scheduledAt', async () => {
+    it('cria um lembrete e uma notificação por tutor vinculado quando há scheduledAt', async () => {
       mockPrismaService.veterinarian.findUnique.mockResolvedValue({
         id: 'vet-1',
       });
@@ -200,10 +203,12 @@ describe('PrescriptionsService', () => {
       });
       mockPrismaService.pet.findFirst.mockResolvedValue({
         id: 'pet-1',
+        name: 'Thor',
         status: PetStatus.active,
       });
       mockPrismaService.vaccine.findUnique.mockResolvedValue({
         id: 'vaccine-1',
+        name: 'V10',
         isActive: true,
       });
       mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue({
@@ -215,8 +220,8 @@ describe('PrescriptionsService', () => {
         scheduledAt: new Date('2026-02-10T00:00:00.000Z'),
       });
       mockPrismaService.tutorPet.findMany.mockResolvedValue([
-        { tutorId: 'tutor-1' },
-        { tutorId: 'tutor-2' },
+        { tutorId: 'tutor-1', tutor: { userId: 'user-tutor-1' } },
+        { tutorId: 'tutor-2', tutor: { userId: 'user-tutor-2' } },
       ]);
 
       await service.create('user-1', { ...dto, scheduledAt: '2026-02-10' });
@@ -236,6 +241,21 @@ describe('PrescriptionsService', () => {
             tutorId: 'tutor-2',
             prescriptionId: 'prescription-1',
             remindAt: new Date('2026-02-07T00:00:00.000Z'),
+          }),
+        ],
+      });
+      expect(mockPrismaService.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            userId: 'user-tutor-1',
+            type: 'prescription_scheduled',
+            referenceId: 'prescription-1',
+            body: 'Uma dose de V10 foi agendada para Thor em 2026-02-10.',
+          }),
+          expect.objectContaining({
+            userId: 'user-tutor-2',
+            type: 'prescription_scheduled',
+            referenceId: 'prescription-1',
           }),
         ],
       });

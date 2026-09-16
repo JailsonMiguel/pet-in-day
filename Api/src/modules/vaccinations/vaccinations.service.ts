@@ -145,6 +145,14 @@ export class VaccinationsService {
         });
       }
 
+      await this.createNotifications(tx, {
+        petId: dto.petId,
+        title: 'Vacina aplicada',
+        body: `A vacina ${vaccine.name} foi aplicada em ${pet.name}.`,
+        type: 'vaccination_applied',
+        referenceId: vaccination.id,
+      });
+
       return vaccination;
     });
   }
@@ -354,6 +362,39 @@ export class VaccinationsService {
         vaccineId: params.vaccineId,
         vaccinationId: params.vaccinationId,
         remindAt: params.remindAt,
+        channel: NotificationChannel.push,
+      })),
+    });
+  }
+
+  /** Notifica (in-app) cada tutor vinculado ao pet — sem envio real por push/e-mail/sms. */
+  private async createNotifications(
+    tx: Prisma.TransactionClient,
+    params: {
+      petId: string;
+      title: string;
+      body: string;
+      type: string;
+      referenceId: string;
+    },
+  ): Promise<void> {
+    const tutorLinks = await tx.tutorPet.findMany({
+      where: { petId: params.petId },
+      select: { tutor: { select: { userId: true } } },
+    });
+
+    if (tutorLinks.length === 0) {
+      return;
+    }
+
+    await tx.notification.createMany({
+      data: tutorLinks.map((link) => ({
+        userId: link.tutor.userId,
+        title: params.title,
+        body: params.body,
+        type: params.type,
+        referenceType: params.type,
+        referenceId: params.referenceId,
         channel: NotificationChannel.push,
       })),
     });

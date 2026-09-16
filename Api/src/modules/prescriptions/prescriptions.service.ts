@@ -72,6 +72,17 @@ export class PrescriptionsService {
           prescriptionId: prescription.id,
           remindAt: this.addDays(prescription.scheduledAt, -REMINDER_LEAD_DAYS),
         });
+
+        const scheduledDate = prescription.scheduledAt
+          .toISOString()
+          .slice(0, 10);
+        await this.createNotifications(tx, {
+          petId: dto.petId,
+          title: 'Consulta agendada',
+          body: `Uma dose de ${vaccine.name} foi agendada para ${pet.name} em ${scheduledDate}.`,
+          type: 'prescription_scheduled',
+          referenceId: prescription.id,
+        });
       }
 
       return prescription;
@@ -217,6 +228,39 @@ export class PrescriptionsService {
         vaccineId: params.vaccineId,
         prescriptionId: params.prescriptionId,
         remindAt: params.remindAt,
+        channel: NotificationChannel.push,
+      })),
+    });
+  }
+
+  /** Notifica (in-app) cada tutor vinculado ao pet — sem envio real por push/e-mail/sms. */
+  private async createNotifications(
+    tx: Prisma.TransactionClient,
+    params: {
+      petId: string;
+      title: string;
+      body: string;
+      type: string;
+      referenceId: string;
+    },
+  ): Promise<void> {
+    const tutorLinks = await tx.tutorPet.findMany({
+      where: { petId: params.petId },
+      select: { tutor: { select: { userId: true } } },
+    });
+
+    if (tutorLinks.length === 0) {
+      return;
+    }
+
+    await tx.notification.createMany({
+      data: tutorLinks.map((link) => ({
+        userId: link.tutor.userId,
+        title: params.title,
+        body: params.body,
+        type: params.type,
+        referenceType: params.type,
+        referenceId: params.referenceId,
         channel: NotificationChannel.push,
       })),
     });

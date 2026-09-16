@@ -5,10 +5,12 @@ import {
   Injectable,
   NotFoundException,
 } from '@nestjs/common';
-import { ClinicUserRole, UserRole } from '@prisma/client';
+import * as bcrypt from 'bcrypt';
+import { ClinicUserRole, UserRole, UserStatus } from '@prisma/client';
 import { PrismaService } from '../../core/database/prisma.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { LinkVeterinarianDto } from './dto/link-veterinarian.dto';
+import { RegisterStaffDto } from './dto/register-staff.dto';
 import { SearchClinicsQueryDto } from './dto/search-clinics-query.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
 
@@ -195,6 +197,91 @@ export class ClinicsService {
         acceptedAt: new Date(),
       },
       include: { veterinarian: true },
+    });
+  }
+
+  /** Provisiona a conta de um membro da recepção/staff — só o admin da clínica (ou `platform_admin`). */
+  async registerStaff(
+    userId: string,
+    userRole: string,
+    clinicId: string,
+    dto: RegisterStaffDto,
+  ) {
+    await this.findOne(clinicId);
+    await this.assertClinicAdminOrPlatformAdmin(userId, userRole, clinicId);
+
+    const existingUser = await this.prisma.user.findUnique({
+      where: { email: dto.email },
+    });
+    if (existingUser) {
+      throw new ConflictException('E-mail já cadastrado');
+    }
+
+    const passwordHash = await bcrypt.hash(dto.password, 10);
+
+    return this.prisma.$transaction(async (tx) => {
+      const user = await tx.user.create({
+        data: {
+          email: dto.email,
+          passwordHash,
+          role: UserRole.receptionist,
+          status: UserStatus.active,
+        },
+      });
+
+      const clinicUser = await tx.clinicUser.create({
+        data: {
+          clinicId,
+          userId: user.id,
+          role: ClinicUserRole.receptionist,
+          isActive: true,
+          acceptedAt: new Date(),
+        },
+      });
+
+      return {
+        clinicUserId: clinicUser.id,
+        userId: user.id,
+        email: user.email,
+        role: user.role,
+      };
+    });
+  }
+
+  /** Lista os membros (admins e recepção) da clínica — só o admin da clínica (ou `platform_admin`). */
+  async findStaff(userId: string, userRole: string, clinicId: string) {
+    await this.findOne(clinicId);
+    await this.assertClinicAdminOrPlatformAdmin(userId, userRole, clinicId);
+
+    return this.prisma.clinicUser.findMany({
+      where: { clinicId },
+      include: {
+        user: { select: { id: true, email: true, status: true } },
+      },
+      orderBy: { createdAt: 'asc' },
+    });
+  }
+
+  /** Desativa o acesso de um membro à clínica — só o admin da clínica (ou `platform_admin`). */
+  async removeStaff(
+    userId: string,
+    userRole: string,
+    clinicId: string,
+    targetUserId: string,
+  ) {
+    await this.findOne(clinicId);
+    await this.assertClinicAdminOrPlatformAdmin(userId, userRole, clinicId);
+
+    const membership = await this.prisma.clinicUser.findUnique({
+      where: { clinicId_userId: { clinicId, userId: targetUserId } },
+    });
+    if (!membership || !membership.isActive) {
+      throw new NotFoundException('Membro não encontrado nesta clínica');
+    }
+
+    return this.prisma.clinicUser.update({
+      where: { id: membership.id },
+      data: { isActive: false },
     });
   }
 

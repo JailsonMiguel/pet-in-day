@@ -1,6 +1,7 @@
 import {
   Body,
   Controller,
+  Delete,
   Get,
   Param,
   Patch,
@@ -12,6 +13,7 @@ import type { AuthenticatedUser } from '../../core/types/authenticated-user';
 import { ClinicsService } from './clinics.service';
 import { CreateClinicDto } from './dto/create-clinic.dto';
 import { LinkVeterinarianDto } from './dto/link-veterinarian.dto';
+import { RegisterStaffDto } from './dto/register-staff.dto';
 import { SearchClinicsQueryDto } from './dto/search-clinics-query.dto';
 import { UpdateClinicDto } from './dto/update-clinic.dto';
 
@@ -64,6 +66,45 @@ export class ClinicsController {
       user.role,
       id,
       dto,
+    );
+    return { data };
+  }
+
+  @Post(':id/staff')
+  async registerStaff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Body() dto: RegisterStaffDto,
+  ) {
+    const data = await this.clinicsService.registerStaff(
+      user.id,
+      user.role,
+      id,
+      dto,
+    );
+    return { data };
+  }
+
+  @Get(':id/staff')
+  async findStaff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+  ) {
+    const data = await this.clinicsService.findStaff(user.id, user.role, id);
+    return { data };
+  }
+
+  @Delete(':id/staff/:userId')
+  async removeStaff(
+    @CurrentUser() user: AuthenticatedUser,
+    @Param('id') id: string,
+    @Param('userId') targetUserId: string,
+  ) {
+    const data = await this.clinicsService.removeStaff(
+      user.id,
+      user.role,
+      id,
+      targetUserId,
     );
     return { data };
   }

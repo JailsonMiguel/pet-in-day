@@ -29,6 +29,7 @@ describe('VaccinationsService', () => {
     clinicPetConsent: { findFirst: jest.fn() },
     tutorPet: { findMany: jest.fn() },
     vaccinationReminder: { createMany: jest.fn() },
+    notification: { createMany: jest.fn() },
     $transaction: jest.fn(),
   };
 
@@ -61,9 +62,13 @@ describe('VaccinationsService', () => {
     });
     mockPrismaService.pet.findFirst.mockResolvedValue({
       id: 'pet-1',
+      name: 'Thor',
       status: PetStatus.active,
     });
-    mockPrismaService.vaccine.findUnique.mockResolvedValue({ id: 'vaccine-1' });
+    mockPrismaService.vaccine.findUnique.mockResolvedValue({
+      id: 'vaccine-1',
+      name: 'V10',
+    });
     mockPrismaService.vaccineProtocol.findUnique.mockResolvedValue(null);
     mockPrismaService.clinicPetConsent.findFirst.mockResolvedValue({
       id: 'consent-1',
@@ -77,6 +82,7 @@ describe('VaccinationsService', () => {
         prescription: { update: jest.fn() },
         tutorPet: mockPrismaService.tutorPet,
         vaccinationReminder: mockPrismaService.vaccinationReminder,
+        notification: mockPrismaService.notification,
       }),
     );
   });
@@ -150,7 +156,7 @@ describe('VaccinationsService', () => {
         intervalDays: 21,
       });
       mockPrismaService.tutorPet.findMany.mockResolvedValue([
-        { tutorId: 'tutor-1' },
+        { tutorId: 'tutor-1', tutor: { userId: 'user-tutor-1' } },
       ]);
       const createSpy = jest.fn().mockResolvedValue({ id: 'vaccination-1' });
       mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
@@ -159,6 +165,7 @@ describe('VaccinationsService', () => {
           prescription: { update: jest.fn() },
           tutorPet: mockPrismaService.tutorPet,
           vaccinationReminder: mockPrismaService.vaccinationReminder,
+          notification: mockPrismaService.notification,
         }),
       );
 
@@ -185,6 +192,31 @@ describe('VaccinationsService', () => {
       });
     });
 
+    it('notifica cada tutor vinculado quando a vacina é aplicada', async () => {
+      mockPrismaService.tutorPet.findMany.mockResolvedValue([
+        { tutor: { userId: 'user-tutor-1' } },
+        { tutor: { userId: 'user-tutor-2' } },
+      ]);
+
+      await service.create('user-1', baseDto);
+
+      expect(mockPrismaService.notification.createMany).toHaveBeenCalledWith({
+        data: [
+          expect.objectContaining({
+            userId: 'user-tutor-1',
+            type: 'vaccination_applied',
+            referenceId: 'vaccination-1',
+            body: 'A vacina V10 foi aplicada em Thor.',
+          }),
+          expect.objectContaining({
+            userId: 'user-tutor-2',
+            type: 'vaccination_applied',
+            referenceId: 'vaccination-1',
+          }),
+        ],
+      });
+    });
+
     it('nextDoseAt é null quando não há próxima dose no protocolo', async () => {
       const createSpy = jest.fn().mockResolvedValue({ id: 'vaccination-1' });
       mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
@@ -193,6 +225,7 @@ describe('VaccinationsService', () => {
           prescription: { update: jest.fn() },
           tutorPet: mockPrismaService.tutorPet,
           vaccinationReminder: mockPrismaService.vaccinationReminder,
+          notification: mockPrismaService.notification,
         }),
       );
 
@@ -225,6 +258,7 @@ describe('VaccinationsService', () => {
           prescription: { update: prescriptionUpdate },
           tutorPet: mockPrismaService.tutorPet,
           vaccinationReminder: mockPrismaService.vaccinationReminder,
+          notification: mockPrismaService.notification,
         }),
       );
 

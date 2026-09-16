@@ -41,9 +41,11 @@ recurso (quem pode editar/vincular) é resolvida no service, no mesmo padrão do
 - `PATCH /v1/clinics/:id`: **Apenas o admin da clínica** (ou `platform_admin`). `cnpj` não é editável.
 - `POST /v1/clinics/:id/veterinarians`: Vincula um veterinário já registrado à clínica, buscando por `crmv`. **Apenas o admin da clínica** (ou `platform_admin`). `404` se o CRMV não existir, `409` se o vínculo já existir.
 - `GET /v1/clinics/search?lat=&lng=&radiusKm=&page=&limit=`: Busca clínicas ativas dentro de um raio (`radiusKm`, padrão 10, até 500) a partir de um ponto (`lat`/`lng`), ordenadas por distância. Calculada em memória com a fórmula de Haversine (distância em linha reta) sobre as clínicas com coordenadas cadastradas — sem PostGIS; reavaliar se o volume de clínicas crescer muito. Clínicas sem `latitude`/`longitude` nunca aparecem no resultado.
+- `POST /v1/clinics/:id/staff` (**admin da clínica**, ou `platform_admin`): Provisiona uma conta de recepção (`email`, `password`) — cria `User` (`role: receptionist`) e o vínculo `ClinicUser` (`role: receptionist`). `409` se o e-mail já existir. Diferente do veterinário (que se autocadastra e depois é vinculado), o staff não tem identidade profissional própria para se cadastrar sozinho — por isso é a clínica quem provisiona a conta; sem `fullName` também, já que (assim como `ClinicUser`) não há um perfil próprio para recepção no schema.
+- `GET /v1/clinics/:id/staff` (**admin da clínica**, ou `platform_admin`): Lista os membros (`admin` e `receptionist`) da clínica, ativos e inativos.
+- `DELETE /v1/clinics/:id/staff/:userId` (**admin da clínica**, ou `platform_admin`): Desativa o vínculo do membro com a clínica (`isActive: false`, soft — o `ClinicUser` não é apagado). Funciona tanto para `receptionist` quanto para `admin`; não há proteção contra remover o único admin ativo.
 
-Não implementado: convite por e-mail/token (`/clinics/{id}/invites/*`),
-cadastro de recepção/staff.
+Não implementado: convite por e-mail/token (`/clinics/{id}/invites/*`).
 
 ### 5. `Veterinarians` (`/v1/veterinarians`)
 
@@ -109,15 +111,18 @@ preferência de canal por usuário, marcar como `sent`/`read`.
 
 CRUD básico sobre `Notification`, sempre escopado ao usuário autenticado —
 não há leitura/edição de notificação alheia. **Não inclui envio real**
-(push/e-mail/sms): as notificações já nascem no banco (hoje, criadas por
-`ConsentsService` ao conceder/revogar) e o app as consome por aqui.
+(push/e-mail/sms): as notificações já nascem no banco e o app as consome
+por aqui.
 
 - `GET /v1/notifications`: Lista as notificações do usuário, mais recentes primeiro (paginado). Filtro opcional `?unreadOnly=true` (usa `status != read`; o `status` de `NotificationChannel` acumula "entrega" e "lida" no mesmo campo, já que não há envio real).
 - `PATCH /v1/notifications/:id/read`: Marca uma notificação como lida (`status: read`, `readAt`). Idempotente. `404` também quando a notificação existe mas é de outro usuário — evita vazar sua existência.
 - `PATCH /v1/notifications/read-all`: Marca todas as não lidas do usuário como lidas de uma vez; retorna `{ updated: number }`.
 
-Não implementado: criação de notificação a partir de outros eventos (vacinação
-aplicada, prescrição agendada), preferência de canal por usuário.
+Quem cria notificações hoje: `ConsentsService` (admins da clínica, ao
+conceder/revogar consentimento), `VaccinationsService` (todos os tutores do
+pet, sempre que uma dose é aplicada) e `PrescriptionsService` (todos os
+tutores do pet, quando a prescrição tem `scheduledAt`). Todas usam
+`channel: push` fixo — não implementado: preferência de canal por usuário.
 
 ---
 
@@ -254,11 +259,12 @@ token, logout, registro), `AuthAuditService`, `JwtStrategy`, `JwtAuthGuard`,
 principal em `update`/`remove`, agregação da carteira de vacinação,
 delegação do export em PDF), `WalletPdfService`, `VaccinesService`,
 `ClinicsService` (autorização por admin da clínica, vínculo
-de veterinário, busca geográfica por raio), `VeterinariansService` (registro, perfil, prescrições
-pendentes), `PrescriptionsService` (criação de lembrete quando há
-`scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
+de veterinário, busca geográfica por raio, provisionamento/listagem/remoção
+de staff), `VeterinariansService` (registro, perfil, prescrições
+pendentes), `PrescriptionsService` (criação de lembrete e notificação quando
+há `scheduledAt`), `VaccinationsService` (cálculo de `nextDoseAt`, retificação
 auditada, verificação pública, bloqueio sem consentimento do tutor, criação
-de lembrete para a próxima dose), `ConsentsService` (concessão/revogação,
+de lembrete e notificação por vacinação aplicada), `ConsentsService` (concessão/revogação,
 autorização por vínculo com o pet, notificação dos admins da clínica),
 `RemindersService` (listagem por pet), `NotificationsService`
 (listagem/filtro por não lidas, marcar uma ou todas como lidas, isolamento

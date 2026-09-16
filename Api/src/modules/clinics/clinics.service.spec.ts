@@ -35,12 +35,17 @@ describe('ClinicsService', () => {
     },
     clinicUser: {
       findUnique: jest.fn(),
+      findMany: jest.fn(),
+      update: jest.fn(),
     },
     clinicVeterinarian: {
       findUnique: jest.fn(),
       create: jest.fn(),
     },
     veterinarian: {
+      findUnique: jest.fn(),
+    },
+    user: {
       findUnique: jest.fn(),
     },
     $transaction: jest.fn(),
@@ -267,6 +272,169 @@ describe('ClinicsService', () => {
       expect(result).toEqual({ id: 'link-1' });
       expect(mockPrismaService.veterinarian.findUnique).toHaveBeenCalledWith({
         where: { crmv: 'SP-12345' },
+      });
+    });
+  });
+
+  describe('registerStaff', () => {
+    beforeEach(() => {
+      mockPrismaService.clinic.findFirst.mockResolvedValue({ id: 'clinic-1' });
+      mockPrismaService.clinicUser.findUnique.mockResolvedValue({
+        isActive: true,
+        role: ClinicUserRole.admin,
+      });
+      mockPrismaService.user.findUnique.mockResolvedValue(null);
+    });
+
+    it('lança ForbiddenException se quem chama não for admin da clínica', async () => {
+      mockPrismaService.clinicUser.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.registerStaff('user-2', UserRole.tutor, 'clinic-1', {
+          email: 'recepcao@petcare.com',
+          password: 'SenhaForte123',
+        }),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lança ConflictException se o e-mail já existir', async () => {
+      mockPrismaService.user.findUnique.mockResolvedValue({ id: 'user-3' });
+
+      await expect(
+        service.registerStaff('user-1', UserRole.tutor, 'clinic-1', {
+          email: 'recepcao@petcare.com',
+          password: 'SenhaForte123',
+        }),
+      ).rejects.toThrow(ConflictException);
+    });
+
+    it('cria o usuário (role=receptionist) e o vínculo com a clínica', async () => {
+      const userCreate = jest.fn().mockResolvedValue({
+        id: 'user-3',
+        email: 'recepcao@petcare.com',
+        role: UserRole.receptionist,
+      });
+      const clinicUserCreate = jest
+        .fn()
+        .mockResolvedValue({ id: 'clinic-user-3' });
+      mockPrismaService.$transaction.mockImplementation((cb: TxCallback) =>
+        cb({
+          user: { create: userCreate },
+          clinicUser: { create: clinicUserCreate },
+        }),
+      );
+
+      const result = await service.registerStaff(
+        'user-1',
+        UserRole.tutor,
+        'clinic-1',
+        { email: 'recepcao@petcare.com', password: 'SenhaForte123' },
+      );
+
+      expect(result).toEqual({
+        clinicUserId: 'clinic-user-3',
+        userId: 'user-3',
+        email: 'recepcao@petcare.com',
+        role: UserRole.receptionist,
+      });
+      expect(userCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            email: 'recepcao@petcare.com',
+            role: UserRole.receptionist,
+          }) as unknown,
+        }),
+      );
+      expect(clinicUserCreate).toHaveBeenCalledWith(
+        expect.objectContaining({
+          data: expect.objectContaining({
+            clinicId: 'clinic-1',
+            userId: 'user-3',
+            role: ClinicUserRole.receptionist,
+            isActive: true,
+          }) as unknown,
+        }),
+      );
+    });
+  });
+
+  describe('findStaff', () => {
+    it('lança ForbiddenException se quem chama não for admin da clínica', async () => {
+      mockPrismaService.clinic.findFirst.mockResolvedValue({ id: 'clinic-1' });
+      mockPrismaService.clinicUser.findUnique.mockResolvedValue(null);
+
+      await expect(
+        service.findStaff('user-2', UserRole.tutor, 'clinic-1'),
+      ).rejects.toThrow(ForbiddenException);
+    });
+
+    it('lista os membros da clínica para o admin', async () => {
+      mockPrismaService.clinic.findFirst.mockResolvedValue({ id: 'clinic-1' });
+      mockPrismaService.clinicUser.findUnique.mockResolvedValue({
+        isActive: true,
+        role: ClinicUserRole.admin,
+      });
+      mockPrismaService.clinicUser.findMany.mockResolvedValue([
+        { id: 'clinic-user-1', role: ClinicUserRole.admin },
+      ]);
+
+      const result = await service.findStaff(
+        'user-1',
+        UserRole.tutor,
+        'clinic-1',
+      );
+
+      expect(result).toEqual([
+        { id: 'clinic-user-1', role: ClinicUserRole.admin },
+      ]);
+      expect(mockPrismaService.clinicUser.findMany).toHaveBeenCalledWith(
+        expect.objectContaining({ where: { clinicId: 'clinic-1' } }) as unknown,
+      );
+    });
+  });
+
+  describe('removeStaff', () => {
+    beforeEach(() => {
+      mockPrismaService.clinic.findFirst.mockResolvedValue({ id: 'clinic-1' });
+      mockPrismaService.clinicUser.findUnique.mockResolvedValue({
+        isActive: true,
+        role: ClinicUserRole.admin,
+      });
+    });
+
+    it('lança NotFoundException se o membro não existir ou já estiver inativo', async () => {
+      mockPrismaService.clinicUser.findUnique
+        .mockResolvedValueOnce({ isActive: true, role: ClinicUserRole.admin })
+        .mockResolvedValueOnce(null);
+
+      await expect(
+        service.removeStaff('user-1', UserRole.tutor, 'clinic-1', 'user-3'),
+      ).rejects.toThrow(NotFoundException);
+    });
+
+    it('desativa o membro da clínica', async () => {
+      mockPrismaService.clinicUser.findUnique
+        .mockResolvedValueOnce({ isActive: true, role: ClinicUserRole.admin })
+        .mockResolvedValueOnce({
+          id: 'clinic-user-3',
+          isActive: true,
+        });
+      mockPrismaService.clinicUser.update.mockResolvedValue({
+        id: 'clinic-user-3',
+        isActive: false,
+      });
+
+      const result = await service.removeStaff(
+        'user-1',
+        UserRole.tutor,
+        'clinic-1',
+        'user-3',
+      );
+
+      expect(result).toEqual({ id: 'clinic-user-3', isActive: false });
+      expect(mockPrismaService.clinicUser.update).toHaveBeenCalledWith({
+        where: { id: 'clinic-user-3' },
+        data: { isActive: false },
       });
     });
   });
